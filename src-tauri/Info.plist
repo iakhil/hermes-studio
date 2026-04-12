@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Hermes Studio uses the microphone for voice commands to your local agent.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Hermes Studio can use the camera only when a future workflow explicitly asks for visual input.</string>
+</dict>
+</plist>

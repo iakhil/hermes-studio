@@ -1,0 +1,11 @@
+services:
+  hermes-studio:
+    build: .
+    ports:
+      - "8420:8420"
+    volumes:
+      - ~/.hermes:/root/.hermes
+    environment:
+      - HERMES_HOME=/root/.hermes
+      - HERMES_GUI_HOST=0.0.0.0
+    restart: unless-stopped

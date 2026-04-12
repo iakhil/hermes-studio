@@ -1,0 +1,217 @@
+<div align="center">
+
+# Hermes Studio
+
+### Control Hermes Agent from your desktop, voice, and phone
+
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776ab.svg)](https://www.python.org)
+[![React 19](https://img.shields.io/badge/react-19-61dafb.svg)](https://react.dev)
+[![FastAPI](https://img.shields.io/badge/fastapi-0.115+-009688.svg)](https://fastapi.tiangolo.com)
+
+**Hermes Studio** is the missing setup and control plane for [Hermes Agent](https://github.com/NousResearch/hermes-agent). It turns Hermes' CLI-first power into guided flows for computer-use, model setup, tool presets, and persistent phone access.
+
+</div>
+
+## Why
+
+Hermes can already browse, use tools, remember context, schedule work, and connect to messaging platforms. The hard part is getting all of that configured without living in terminal docs.
+
+Hermes Studio focuses on the high-value path:
+
+1. Install or verify Hermes Agent.
+2. Configure your model provider.
+3. Enable the Computer Use preset.
+4. Connect Telegram so your agent is reachable from your phone.
+5. Chat or speak to Hermes while it works through browser, terminal, files, memory, and scheduled tasks.
+
+## Current Features
+
+- Guided Hermes install and provider setup.
+- Web chat with streamed agent responses.
+- Computer Use preset for browser, terminal, vision, files, memory, TTS, web, and cron tools.
+- macOS permission checklist for local computer-use workflows.
+- Native macOS shell scaffold with Accessibility status checks and deep links to Privacy & Security panes.
+- Telegram configuration with token and allowed-user storage in `~/.hermes/.env`.
+- Gateway start/stop controls with live logs.
+- Raw tool manager for enabling and disabling Hermes toolsets.
+- Browser voice input through the Web Speech API.
+
+## Quick Start
+
+Prerequisites:
+
+- macOS, Linux, or WSL2
+- Node.js 20+
+- Python 3.11+
+- Hermes Agent, or let Hermes Studio install it
+
+```bash
+git clone https://github.com/YOUR_USERNAME/hermes-studio.git
+cd hermes-studio
+make install
+make dev
+```
+
+Open [http://localhost:5173](http://localhost:5173).
+
+The backend runs on `127.0.0.1:8420`; Vite proxies API and websocket traffic during development.
+
+## Native macOS App
+
+Hermes Studio now includes a Tauri shell. It loads the existing React app while adding native macOS capabilities that a browser cannot provide.
+
+```bash
+npm install
+cd frontend && npm install
+cd ..
+npm run desktop:dev
+```
+
+The native shell currently adds:
+
+- Accessibility permission status checks.
+- Shortcuts to Accessibility, Screen Recording, Microphone, and Automation settings.
+- A path toward Keychain secrets, LaunchAgent persistence, menu bar controls, and a signed `.dmg`.
+
+Rust is pinned in `rust-toolchain.toml` because current Tauri dependencies require Rust 1.88+.
+
+## Apple Intelligence And Local Models
+
+Apple's Foundation Models framework exposes the on-device language model behind Apple Intelligence to apps on supported systems. That can help Hermes Studio with lightweight local tasks such as intent routing, structured command extraction, safety classification, and deciding whether a request should go to Hermes or a cloud/local LLM.
+
+It is not a full replacement for Hermes Agent:
+
+- It is Swift-native, so it should live behind Tauri native commands or a small helper.
+- It depends on Apple Intelligence availability and user settings.
+- Its context window and model control are limited compared with dedicated agent backends.
+- It cannot silently bypass macOS privacy permissions.
+
+The practical path is to support multiple local intelligence layers:
+
+- Apple Foundation Models for native on-device planning when available.
+- Ollama or llama.cpp for heavier local models.
+- Hermes Agent as the main tool-using runtime.
+
+## First Run
+
+1. Open **Setup** and configure Hermes.
+2. Open **Computer Use** and click **Enable Preset**.
+3. Grant macOS permissions when prompted by your terminal or browser automation stack.
+4. Open **Connections**, save your Telegram bot token and allowed user ID, then start the gateway.
+5. Message your bot on Telegram or use the web chat.
+
+## Telegram Setup
+
+1. Message [@BotFather](https://t.me/BotFather).
+2. Create a bot with `/newbot`.
+3. Paste the bot token into Hermes Studio.
+4. Message [@userinfobot](https://t.me/userinfobot) to get your numeric Telegram user ID.
+5. Add that ID to **Allowed Telegram user IDs**.
+6. Start the gateway.
+
+Hermes Agent supports Telegram text, voice memos, images, file attachments, and scheduled task delivery. Hermes Studio stores the required token and allowlist in your local Hermes environment file.
+
+## WhatsApp Status
+
+Hermes Agent supports WhatsApp through a Baileys-based bridge and QR pairing flow. Hermes Studio does not expose the WhatsApp pairing UI yet. Telegram is the first supported phone connection because it is safer, simpler, and uses official bot tokens.
+
+## Architecture
+
+```text
+React/Vite frontend
+        |
+        | REST + WebSocket
+        v
+FastAPI backend
+        |
+        | service wrappers
+        v
+Hermes Agent CLI/config/gateway
+        |
+        v
+LLM providers, tools, Telegram, local machine
+```
+
+Frontend:
+
+- React 19
+- Vite
+- Tailwind CSS
+- Zustand
+- Framer Motion
+
+Backend:
+
+- FastAPI
+- WebSockets
+- Hermes CLI subprocess integration
+- Local `~/.hermes` config and environment management
+
+## Project Structure
+
+```text
+frontend/
+  src/pages/              app screens
+  src/components/         layout, chat, and UI components
+  src/hooks/              websocket and voice hooks
+  src/stores/             chat state
+  src/lib/                API client and shared types
+
+backend/
+  app/routers/            REST and websocket routes
+  app/services/           Hermes command, config, tools, gateway services
+  app/models/             Pydantic schemas
+```
+
+## Development
+
+```bash
+make dev           # frontend + backend
+make dev-frontend  # Vite only
+make dev-backend   # FastAPI only
+make build         # production frontend into backend/static
+make clean         # remove build artifacts
+```
+
+## Docker
+
+```bash
+docker compose up
+```
+
+The container mounts `~/.hermes` so Hermes configuration and platform sessions persist.
+
+## Roadmap
+
+- [x] Web chat for Hermes
+- [x] Guided model setup
+- [x] Raw tool manager
+- [x] Computer Use preset
+- [x] Telegram config and gateway process controls
+- [ ] Hermes doctor UI with actionable repair buttons
+- [ ] Approval cards for risky tool calls
+- [ ] Session history and search
+- [ ] WhatsApp QR pairing UI
+- [ ] Skills browser
+- [ ] Memory editor
+- [ ] Cron scheduler UI
+- [ ] Tauri desktop app for macOS
+
+## Security Notes
+
+- API keys and bot tokens stay local in Hermes config files.
+- Gateway logs are redacted before being returned to the browser.
+- Telegram access should always be restricted with `TELEGRAM_ALLOWED_USERS`.
+- WhatsApp sessions, once supported in the UI, must be treated like credentials.
+- Computer-use features can operate your machine. Keep approval mode on unless you explicitly want unattended execution.
+
+## Acknowledgments
+
+- [Hermes Agent](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com)
+- [shadcn/ui](https://ui.shadcn.com)
+- [Lucide](https://lucide.dev)
+
+## License
+
+[MIT](LICENSE)
