@@ -56,4 +56,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  // Local voice
+  voiceStatus: () => request<import("./types").VoiceStatus>("/voice/status"),
+  transcribeVoice: async (audio: Blob) => {
+    const res = await fetch(`${BASE}/voice/transcribe`, {
+      method: "POST",
+      headers: { "Content-Type": audio.type || "audio/webm" },
+      body: audio,
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Voice transcription failed ${res.status}: ${body}`);
+    }
+    return res.json() as Promise<import("./types").VoiceTranscription>;
+  },
+
+  // Computer use
+  computerUseStatus: () => request<import("./types").ComputerUseStatus>("/computer-use/status"),
+  connectComputerUseBrowser: () =>
+    request<{ success: boolean; chrome_connected: boolean; browser_cdp_url: string; profile_dir: string; error?: string | null }>(
+      "/computer-use/connect-browser",
+      { method: "POST" }
+    ),
+  disconnectComputerUseBrowser: () =>
+    request<{ success: boolean; chrome_connected: boolean }>("/computer-use/disconnect-browser", {
+      method: "POST",
+    }),
 };

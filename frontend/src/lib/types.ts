@@ -119,3 +119,35 @@ export interface TelegramStatus {
   allowed_users: string;
   home_channel: string;
 }
+
+export interface VoiceEngineStatus {
+  id: string;
+  name: string;
+  available: boolean;
+  detail: string;
+  install_hint: string;
+}
+
+export interface VoiceStatus {
+  configured: boolean;
+  active_engine?: string | null;
+  engines: VoiceEngineStatus[];
+  recording: {
+    format: string;
+    privacy: string;
+  };
+}
+
+export interface VoiceTranscription {
+  text: string;
+  engine: string;
+  duration_ms: number;
+}
+
+export interface ComputerUseStatus {
+  browser_cdp_url: string;
+  chrome_connected: boolean;
+  profile_dir: string;
+  mode: string;
+  detail: string;
+}

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import chat, doctor, gateway, health, setup, tools
+from app.routers import chat, computer_use, doctor, gateway, health, setup, tools, voice
 
 app = FastAPI(
     title="Hermes Studio",
@@ -23,9 +23,11 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(doctor.router, prefix="/api/v1")
+app.include_router(computer_use.router, prefix="/api/v1")
 app.include_router(setup.router, prefix="/api/v1")
 app.include_router(tools.router, prefix="/api/v1")
 app.include_router(gateway.router, prefix="/api/v1")
+app.include_router(voice.router, prefix="/api/v1")
 app.include_router(chat.router)
 
 # Serve frontend static files in production

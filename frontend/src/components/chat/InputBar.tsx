@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ArrowUp, Square, Plus, Mic, MicOff } from "lucide-react";
+import { ArrowUp, Square, Plus, Mic, MicOff, Loader2 } from "lucide-react";
 import { useSpeechToText } from "@/hooks/useVoice";
 
 interface InputBarProps {
@@ -21,7 +21,7 @@ export function InputBar({
 }: InputBarProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { isListening, transcript, startListening, stopListening, supported: micSupported } =
+  const { isListening, isTranscribing, transcript, error: voiceError, startListening, stopListening, supported: micSupported } =
     useSpeechToText();
 
   // Auto-resize textarea
@@ -39,9 +39,16 @@ export function InputBar({
     }
   }, [transcript]);
 
-  const handleSubmit = () => {
-    if (isListening) stopListening();
-    const trimmed = input.trim();
+  const handleSubmit = async () => {
+    let text = input;
+    if (isListening) {
+      try {
+        text = await stopListening();
+      } catch {
+        return;
+      }
+    }
+    const trimmed = text.trim();
     if (!trimmed || isStreaming || !isConnected) return;
     onSend(trimmed);
     setInput("");
@@ -57,11 +64,16 @@ export function InputBar({
     }
   };
 
-  const toggleMic = () => {
+  const toggleMic = async () => {
     if (isListening) {
-      stopListening();
+      try {
+        const text = await stopListening();
+        if (text.trim()) setInput(text.trim());
+      } catch {
+        // The hook exposes the error below the input.
+      }
     } else {
-      startListening();
+      await startListening();
     }
   };
 
@@ -97,11 +109,13 @@ export function InputBar({
               placeholder={
                 isListening
                   ? "Listening..."
+                  : isTranscribing
+                  ? "Transcribing locally..."
                   : !isConnected
                   ? "Connecting to Hermes..."
                   : "Send a message..."
               }
-              disabled={!isConnected}
+              disabled={!isConnected || isTranscribing}
               rows={1}
               className="w-full resize-none bg-transparent px-4 py-3 pr-12 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
             />
@@ -110,15 +124,20 @@ export function InputBar({
             {micSupported && !isStreaming && (
               <button
                 onClick={toggleMic}
+                disabled={isTranscribing}
                 className={cn(
                   "absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 transition-colors cursor-pointer",
                   isListening
                     ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                    : isTranscribing
+                    ? "text-primary"
                     : "text-muted-foreground hover:text-foreground hover:bg-zinc-800"
                 )}
                 title={isListening ? "Stop listening" : "Voice input"}
               >
-                {isListening ? (
+                {isTranscribing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : isListening ? (
                   <div className="relative">
                     <MicOff className="h-4 w-4" />
                     <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-red-500 animate-pulse" />
@@ -144,7 +163,7 @@ export function InputBar({
             <Button
               size="icon"
               onClick={handleSubmit}
-              disabled={!input.trim() || !isConnected}
+              disabled={(!input.trim() && !isListening) || !isConnected || isTranscribing}
               className="shrink-0 h-10 w-10 rounded-xl"
             >
               <ArrowUp className="h-4 w-4" />
@@ -152,8 +171,8 @@ export function InputBar({
           )}
         </div>
 
-        <p className="mt-2 text-center text-[10px] text-muted-foreground/60">
-          Hermes Studio wraps Hermes Agent. Responses may be inaccurate.
+        <p className={cn("mt-2 text-center text-[10px]", voiceError ? "text-amber-300" : "text-muted-foreground/60")}>
+          {voiceError || "Hermes Studio wraps Hermes Agent. Responses may be inaccurate."}
         </p>
       </div>
     </div>

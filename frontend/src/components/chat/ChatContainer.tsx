@@ -57,15 +57,14 @@ function EmptyState({ onSend }: { onSend: (msg: string) => void }) {
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">Hermes Studio</h2>
       <p className="text-sm text-muted-foreground text-center max-w-md">
-        The visual interface for Hermes Agent. Send a message to start a conversation,
-        or head to <span className="text-primary">Setup</span> to configure your model.
+        The visual interface for Hermes Agent. Use native Mac apps directly, or connect Chrome only when a task explicitly needs a website.
       </p>
       <div className="mt-8 grid grid-cols-2 gap-3 max-w-sm w-full">
         {[
-          "Write a Python script to scrape HN",
-          "Help me debug my Dockerfile",
-          "Explain this error message",
-          "Create a REST API with FastAPI",
+          "Open Notes and create a note called shopping list",
+          "Open Calendar and draft an event for tomorrow at 9 AM",
+          "Open WhatsApp and prepare a message to Mom",
+          "Open Music and play a playlist",
         ].map((prompt) => (
           <button
             key={prompt}

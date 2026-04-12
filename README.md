@@ -23,19 +23,21 @@ Hermes Studio focuses on the high-value path:
 2. Configure your model provider.
 3. Enable the Computer Use preset.
 4. Connect Telegram so your agent is reachable from your phone.
-5. Chat or speak to Hermes while it works through browser, terminal, files, memory, and scheduled tasks.
+5. Chat or speak to Hermes while it works through native apps, browser, terminal, files, memory, and scheduled tasks.
 
 ## Current Features
 
 - Guided Hermes install and provider setup.
 - Web chat with streamed agent responses.
-- Computer Use preset for browser, terminal, vision, files, memory, TTS, web, and cron tools.
+- Computer Use preset for native app automation, browser, terminal, vision, files, memory, TTS, web, and cron tools.
+- Native Notes automation for creating notes from chat or voice commands.
+- Optional live Chrome connection for explicit website control through Hermes browser tools.
 - macOS permission checklist for local computer-use workflows.
 - Native macOS shell scaffold with Accessibility status checks and deep links to Privacy & Security panes.
 - Telegram configuration with token and allowed-user storage in `~/.hermes/.env`.
 - Gateway start/stop controls with live logs.
 - Raw tool manager for enabling and disabling Hermes toolsets.
-- Browser voice input through the Web Speech API.
+- Local voice input for computer-use commands through on-device STT engines.
 
 ## Quick Start
 
@@ -56,6 +58,53 @@ make dev
 Open [http://localhost:5173](http://localhost:5173).
 
 The backend runs on `127.0.0.1:8420`; Vite proxies API and websocket traffic during development.
+
+## Local Voice
+
+Hermes Studio records microphone audio in the app and sends it to the local backend for transcription. No hosted speech API is required when one of these local engines is installed:
+
+```bash
+# Good default on any Mac
+python3 -m pip install faster-whisper
+
+# Apple Silicon optimized option
+python3 -m pip install mlx-whisper
+```
+
+Advanced users can also use `whisper.cpp`:
+
+```bash
+brew install whisper-cpp
+export WHISPER_CPP_MODEL=/path/to/ggml-base.en.bin
+```
+
+Optional environment overrides:
+
+- `HERMES_STUDIO_STT_ENGINE=mlx-whisper|faster-whisper|whisper.cpp|auto`
+- `FASTER_WHISPER_MODEL=base.en`
+- `MLX_WHISPER_MODEL=mlx-community/whisper-base.en-mlx`
+
+Open **Computer Use** to see whether a local voice engine is ready. Use the mic button in Chat to record a command, transcribe it locally, and send it to Hermes.
+
+## Computer Use
+
+Computer Use keeps native app requests native. Hermes Studio first routes supported Mac app tasks through macOS automation, then falls back to Hermes' normal tool harness for broader local work. The first native primitive creates notes in Apple Notes, so commands like this work without opening a browser:
+
+```text
+Open Notes and create a note called shopping list.
+```
+
+macOS may ask for Automation or Accessibility permission the first time Hermes Studio controls an app.
+
+For explicit website tasks, Studio can also connect Hermes browser tools to a visible Chrome session over the Chrome DevTools Protocol (CDP). That lets Hermes operate real websites through a persistent local profile:
+
+- Gmail: open, compose, fill recipient/body, then ask before sending.
+- X: open, draft a post, then ask before posting.
+- WhatsApp Web: open, search a chat, draft a message, then ask before sending.
+
+Open **Computer Use** and click **Connect Chrome** only when you want website control. Studio launches a separate persistent Chrome profile at `~/.hermes/studio-chrome-profile` with CDP on `127.0.0.1:9222`, then stores `BROWSER_CDP_URL` in `~/.hermes/.env` so Hermes browser tools use that visible session.
+
+For authenticated sites, log in once inside that Chrome profile. Hermes should stop and ask when login, permissions, or human confirmation is needed.
 
 ## Native macOS App
 
