@@ -8,24 +8,33 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from app.services.hermes import redact
 
 router = APIRouter()
 
 
+class ChatRunRequest(BaseModel):
+    content: str
+
+
 class AgentSession:
     """Manages a chat session with the hermes agent."""
 
-    def __init__(self, ws: WebSocket):
+    def __init__(self, ws: WebSocket | None):
         self.ws = ws
         self.session_id = str(uuid.uuid4())
         self.conversation: list[dict] = []
         self._interrupt = False
+        self.events: list[dict] = []
 
     async def send(self, msg: dict):
-        await self.ws.send_json(msg)
+        if self.ws is not None:
+            await self.ws.send_json(msg)
+        else:
+            self.events.append(msg)
 
     async def handle_message(self, content: str):
         """Process a user message and stream the response."""
@@ -331,6 +340,33 @@ async def websocket_chat(ws: WebSocket):
             await session.send({"type": "error", "message": str(e)})
         except Exception:
             pass
+
+
+@router.post("/api/v1/chat/run")
+async def run_chat_command(req: ChatRunRequest) -> dict:
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="No message content provided.")
+
+    session = AgentSession(None)
+    await session.handle_message(content)
+
+    response = "".join(
+        str(event.get("text") or "")
+        for event in session.events
+        if event.get("type") == "delta"
+    ).strip()
+    errors = [
+        str(event.get("message") or "")
+        for event in session.events
+        if event.get("type") == "error" and event.get("message")
+    ]
+    return {
+        "session_id": session.session_id,
+        "response": response,
+        "error": "\n".join(errors).strip() or None,
+        "events": session.events,
+    }
 
 
 def _get_current_model() -> str:

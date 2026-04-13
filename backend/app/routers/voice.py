@@ -169,25 +169,39 @@ def _transcribe_local(audio_path: Path) -> tuple[str, str]:
         engines = [preferred, *[engine for engine in engines if engine != preferred]]
 
     errors: list[str] = []
+    attempted: list[str] = []
     for engine in engines:
         try:
             if engine == "mlx-whisper" and importlib.util.find_spec("mlx_whisper") is not None:
+                attempted.append(engine)
                 return _transcribe_mlx(audio_path), "mlx-whisper"
             if engine == "faster-whisper" and importlib.util.find_spec("faster_whisper") is not None:
+                attempted.append(engine)
                 return _transcribe_faster_whisper(audio_path), "faster-whisper"
             if engine == "whisper.cpp":
-                return _transcribe_whisper_cpp(audio_path), "whisper.cpp"
+                if _whisper_cpp_available():
+                    attempted.append(engine)
+                    return _transcribe_whisper_cpp(audio_path), "whisper.cpp"
         except Exception as exc:
             errors.append(f"{engine}: {exc}")
 
-    hint = (
-        "No local speech-to-text engine is available. Install one of: "
-        "python3 -m pip install faster-whisper, python3 -m pip install mlx-whisper, "
-        "or brew install whisper-cpp with WHISPER_CPP_MODEL set."
-    )
+    if attempted:
+        hint = "Local speech-to-text was available, but it could not decode this recording."
+    else:
+        hint = (
+            "No local speech-to-text engine is available. Install one of: "
+            "python3 -m pip install faster-whisper, python3 -m pip install mlx-whisper, "
+            "or brew install whisper-cpp with WHISPER_CPP_MODEL set."
+        )
     if errors:
         hint += " Last errors: " + " | ".join(errors[-3:])
     raise RuntimeError(hint)
+
+
+def _whisper_cpp_available() -> bool:
+    binary = shutil.which("whisper-cli") or shutil.which("whisper-cpp") or shutil.which("main")
+    model = os.getenv("WHISPER_CPP_MODEL", "").strip()
+    return bool(binary and model)
 
 
 def _transcribe_mlx(audio_path: Path) -> str:

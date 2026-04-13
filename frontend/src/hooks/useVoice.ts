@@ -18,7 +18,8 @@ export function useSpeechToText(): UseSpeechToTextReturn {
   const [error, setError] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordingStartedAtRef = useRef(0);
   const stopPromiseRef = useRef<{
     resolve: (value: string) => void;
     reject: (reason?: unknown) => void;
@@ -50,11 +51,10 @@ export function useSpeechToText(): UseSpeechToTextReturn {
     });
     streamRef.current = stream;
 
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : "audio/webm";
-    const recorder = new MediaRecorder(stream, { mimeType });
+    const mimeType = selectRecordingMimeType();
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     recorderRef.current = recorder;
+    recordingStartedAtRef.current = Date.now();
 
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunksRef.current.push(event.data);
@@ -71,7 +71,15 @@ export function useSpeechToText(): UseSpeechToTextReturn {
       setIsTranscribing(true);
       cleanup();
       try {
-        const audio = new Blob(chunksRef.current, { type: mimeType });
+        if (!chunksRef.current.length) {
+          throw new Error("No microphone audio was captured. Hold Option+Command a little longer.");
+        }
+        const audio = new Blob(chunksRef.current, {
+          type: mimeType || chunksRef.current[0]?.type || "audio/mp4",
+        });
+        if (audio.size < 1024) {
+          throw new Error("The voice command was too short to transcribe. Hold Option+Command a little longer.");
+        }
         const result = await api.transcribeVoice(audio);
         const text = result.text.trim();
         setTranscript(text);
@@ -86,7 +94,7 @@ export function useSpeechToText(): UseSpeechToTextReturn {
       }
     };
 
-    recorder.start();
+    recorder.start(250);
     setIsListening(true);
   }, [cleanup, isListening, supported]);
 
@@ -94,14 +102,31 @@ export function useSpeechToText(): UseSpeechToTextReturn {
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === "inactive") return transcript;
 
+    const elapsedMs = Date.now() - recordingStartedAtRef.current;
+    if (elapsedMs < 450) {
+      await new Promise((resolve) => setTimeout(resolve, 450 - elapsedMs));
+    }
+
     const stopped = new Promise<string>((resolve, reject) => {
       stopPromiseRef.current = { resolve, reject };
     });
+    recorder.requestData();
     recorder.stop();
     return stopped;
   }, [transcript]);
 
   return { isListening, isTranscribing, transcript, error, startListening, stopListening, supported };
+}
+
+function selectRecordingMimeType() {
+  const candidates = [
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+  ];
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
 interface UseTextToSpeechReturn {
