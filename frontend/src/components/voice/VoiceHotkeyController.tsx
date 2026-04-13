@@ -32,6 +32,7 @@ export function VoiceHotkeyController({ headless = false }: { headless?: boolean
     if (recordingStateRef.current === "stopping") return;
     recordingStateRef.current = "stopping";
     releasePendingRef.current = false;
+    let finishedWithTalkBack = false;
 
     try {
       const text = (await stopListening()).trim();
@@ -41,12 +42,17 @@ export function VoiceHotkeyController({ headless = false }: { headless?: boolean
         window.dispatchEvent(new CustomEvent("voice-talkback-start"));
         await speak(response);
         window.dispatchEvent(new CustomEvent("voice-talkback-end"));
+        finishedWithTalkBack = true;
       }
     } catch {
       // The hook exposes the current error in the status pill.
       window.dispatchEvent(new CustomEvent("voice-talkback-end"));
+      finishedWithTalkBack = true;
     } finally {
       recordingStateRef.current = "idle";
+      if (!finishedWithTalkBack) {
+        window.dispatchEvent(new CustomEvent("voice-talkback-end"));
+      }
     }
   }, [sendMessageAndWait, speak, stopListening]);
 
@@ -64,6 +70,7 @@ export function VoiceHotkeyController({ headless = false }: { headless?: boolean
     } catch {
       recordingStateRef.current = "idle";
       releasePendingRef.current = false;
+      window.dispatchEvent(new CustomEvent("voice-talkback-end"));
     }
   }, [startListening, stopAndSend, supported]);
 

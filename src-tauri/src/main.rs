@@ -202,6 +202,7 @@ mod voice_hotkey {
             );
 
             if event_tap.is_null() {
+                show_registered_hud(&app);
                 let _ = app.emit(
                     "voice-hotkey-unavailable",
                     VoiceHotkeyPayload {
@@ -213,6 +214,7 @@ mod voice_hotkey {
 
             let source = CFMachPortCreateRunLoopSource(std::ptr::null(), event_tap, 0);
             if source.is_null() {
+                show_registered_hud(&app);
                 let _ = app.emit(
                     "voice-hotkey-unavailable",
                     VoiceHotkeyPayload {
@@ -250,8 +252,33 @@ mod voice_hotkey {
         let _ = window.set_always_on_top(true);
         let _ = window.set_visible_on_all_workspaces(true);
         let _ = window.set_focusable(false);
+        position_hud_window(window);
         let _ = window.show();
         macos_hud_window::raise(window);
+    }
+
+    fn position_hud_window(window: &tauri::WebviewWindow) {
+        let monitor = window
+            .cursor_position()
+            .ok()
+            .and_then(|position| window.monitor_from_point(position.x, position.y).ok().flatten())
+            .or_else(|| window.current_monitor().ok().flatten())
+            .or_else(|| window.primary_monitor().ok().flatten());
+
+        let Some(monitor) = monitor else {
+            return;
+        };
+
+        let work_area = monitor.work_area();
+        let window_size = window.outer_size().unwrap_or_else(|_| (88, 88).into());
+        let margin = (18.0 * monitor.scale_factor()).round() as i32;
+        let work_left = work_area.position.x;
+        let work_top = work_area.position.y;
+        let work_right = work_left + work_area.size.width as i32;
+        let work_bottom = work_top + work_area.size.height as i32;
+        let x = (work_right - window_size.width as i32 - margin).max(work_left);
+        let y = (work_bottom - window_size.height as i32 - margin).max(work_top);
+        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
     }
 
     unsafe extern "C" fn flags_changed_callback(

@@ -14,6 +14,7 @@ from app.models.ws_messages import (
     SelectModelRequest,
     TestConnectionResponse,
 )
+from app.services.hermes import OPENAI_BASE_URL, OPENAI_GATEWAY_DEFAULT_MODEL
 
 router = APIRouter(prefix="/setup")
 
@@ -65,10 +66,10 @@ PROVIDER_MODELS: dict[str, list[ModelInfo]] = {
         ModelInfo(id="deepseek/deepseek-r1", name="DeepSeek R1", provider="openrouter", context_length=65536),
     ],
     "openai": [
-        ModelInfo(id="gpt-4o", name="GPT-4o", provider="openai", context_length=128000),
-        ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini", provider="openai", context_length=128000),
-        ModelInfo(id="o1", name="o1", provider="openai", context_length=200000),
-        ModelInfo(id="o3-mini", name="o3-mini", provider="openai", context_length=200000),
+        ModelInfo(id="gpt-5.4-mini", name="GPT-5.4 Mini", provider="openai", context_length=400000),
+        ModelInfo(id="gpt-5.4", name="GPT-5.4", provider="openai", context_length=400000),
+        ModelInfo(id="gpt-5.4-pro", name="GPT-5.4 Pro", provider="openai", context_length=400000),
+        ModelInfo(id="gpt-5.4-nano", name="GPT-5.4 Nano", provider="openai", context_length=400000),
     ],
     "anthropic": [
         ModelInfo(id="claude-opus-4-6", name="Claude Opus 4.6", provider="anthropic", context_length=200000),
@@ -172,8 +173,10 @@ async def configure_provider(req: ConfigureProviderRequest):
             config["model"] = model
         model["provider"] = provider
         if req.provider == "openai":
-            model["base_url"] = "https://api.openai.com/v1"
+            model["base_url"] = OPENAI_BASE_URL
             model["api_mode"] = "codex_responses"
+            if not _is_openai_reasoning_model(model.get("default")):
+                model["default"] = OPENAI_GATEWAY_DEFAULT_MODEL
         if req.api_key:
             from hermes_cli.config import save_env_value
             env_key = _provider_env_key(provider)
@@ -196,8 +199,9 @@ async def configure_provider(req: ConfigureProviderRequest):
                 return {"success": False, "error": result.stderr.strip()[:500] or result.stdout.strip()[:500]}
             if req.provider == "openai":
                 for key, value in [
-                    ("model.base_url", "https://api.openai.com/v1"),
+                    ("model.base_url", OPENAI_BASE_URL),
                     ("model.api_mode", "codex_responses"),
+                    ("model.default", OPENAI_GATEWAY_DEFAULT_MODEL),
                 ]:
                     result = subprocess.run(
                         ["hermes", "config", "set", key, value],
@@ -219,6 +223,7 @@ async def configure_provider(req: ConfigureProviderRequest):
 
 @router.post("/select-model")
 async def select_model(req: SelectModelRequest):
+    selected_model = _gateway_safe_model(req.model_id, req.provider)
     try:
         from hermes_cli.config import load_config, save_config
         config = load_config()
@@ -226,8 +231,8 @@ async def select_model(req: SelectModelRequest):
         if not isinstance(model, dict):
             model = {"default": model} if model else {}
             config["model"] = model
-        model["default"] = req.model_id
-        inferred_provider = _infer_provider_from_model(req.model_id, req.provider)
+        model["default"] = selected_model
+        inferred_provider = _infer_provider_from_model(selected_model, req.provider)
         if inferred_provider:
             model["provider"] = inferred_provider
             if inferred_provider == "openrouter":
@@ -235,19 +240,21 @@ async def select_model(req: SelectModelRequest):
                 model["base_url"] = OPENROUTER_BASE_URL
                 model["api_mode"] = "chat_completions"
             elif req.provider == "openai":
-                model["base_url"] = "https://api.openai.com/v1"
+                model["base_url"] = OPENAI_BASE_URL
                 model["api_mode"] = "codex_responses"
+                if not _is_openai_reasoning_model(model.get("default")):
+                    model["default"] = OPENAI_GATEWAY_DEFAULT_MODEL
         save_config(config)
         return {"success": True}
     except ImportError:
         try:
             result = subprocess.run(
-                ["hermes", "config", "set", "model.default", req.model_id],
+                ["hermes", "config", "set", "model.default", selected_model],
                 capture_output=True, text=True, timeout=10,
             )
             if result.returncode != 0:
                 return {"success": False, "error": result.stderr.strip()[:500] or result.stdout.strip()[:500]}
-            inferred_provider = _infer_provider_from_model(req.model_id, req.provider)
+            inferred_provider = _infer_provider_from_model(selected_model, req.provider)
             if inferred_provider:
                 result = subprocess.run(
                     ["hermes", "config", "set", "model.provider", inferred_provider],
@@ -255,6 +262,17 @@ async def select_model(req: SelectModelRequest):
                 )
                 if result.returncode != 0:
                     return {"success": False, "error": result.stderr.strip()[:500] or result.stdout.strip()[:500]}
+                if req.provider == "openai":
+                    for key, value in [
+                        ("model.base_url", OPENAI_BASE_URL),
+                        ("model.api_mode", "codex_responses"),
+                    ]:
+                        result = subprocess.run(
+                            ["hermes", "config", "set", key, value],
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        if result.returncode != 0:
+                            return {"success": False, "error": result.stderr.strip()[:500] or result.stdout.strip()[:500]}
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -311,3 +329,16 @@ def _infer_provider_from_model(model_id: str, selected_provider: str | None = No
 
 def _hermes_provider(provider: str) -> str:
     return "custom" if provider == "openai" else provider
+
+
+def _is_openai_reasoning_model(model: str | None) -> bool:
+    normalized = str(model or "").strip().lower()
+    if "/" in normalized:
+        normalized = normalized.rsplit("/", 1)[-1]
+    return normalized.startswith("gpt-5")
+
+
+def _gateway_safe_model(model_id: str, provider: str | None) -> str:
+    if provider == "openai" and not _is_openai_reasoning_model(model_id):
+        return OPENAI_GATEWAY_DEFAULT_MODEL
+    return model_id

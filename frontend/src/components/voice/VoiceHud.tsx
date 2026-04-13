@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, Mic } from "lucide-react";
+import { AlertTriangle, Loader2, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type HudState = "registered" | "listening" | "released" | "speaking" | "unavailable";
@@ -10,7 +10,6 @@ interface VoiceHotkeyPayload {
 
 export function VoiceHud() {
   const [state, setState] = useState<HudState>("registered");
-  const [shortcut, setShortcut] = useState("Option+Command");
 
   useEffect(() => {
     document.documentElement.style.background = "transparent";
@@ -18,54 +17,24 @@ export function VoiceHud() {
     document.body.style.overflow = "hidden";
 
     let cleanup = () => {};
-    let hideTimer: number | null = null;
-    const hideSoon = (delay = 1200) => {
-      if (hideTimer) window.clearTimeout(hideTimer);
-      hideTimer = window.setTimeout(async () => {
-        try {
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          await getCurrentWindow().hide();
-        } catch {
-          // The HUD can still be used in a browser preview without Tauri window APIs.
-        }
-      }, delay);
-    };
-    const showUntilNextState = () => {
-      if (hideTimer) window.clearTimeout(hideTimer);
-      hideTimer = null;
-    };
-    const onTalkBackStart = () => {
-      showUntilNextState();
-      setState("speaking");
-    };
-    const onTalkBackEnd = () => {
-      setState("registered");
-      hideSoon(900);
-    };
+    const onTalkBackStart = () => setState("speaking");
+    const onTalkBackEnd = () => setState("registered");
     window.addEventListener("voice-talkback-start", onTalkBackStart);
     window.addEventListener("voice-talkback-end", onTalkBackEnd);
-    hideSoon(1400);
 
     async function bind() {
       try {
         const { listen } = await import("@tauri-apps/api/event");
-        const unlistenPressed = await listen<VoiceHotkeyPayload>("voice-hotkey-pressed", (event) => {
-          showUntilNextState();
-          setShortcut(event.payload?.shortcut || "Option+Command");
+        const unlistenPressed = await listen<VoiceHotkeyPayload>("voice-hotkey-pressed", () => {
           setState("listening");
         });
-        const unlistenReleased = await listen<VoiceHotkeyPayload>("voice-hotkey-released", (event) => {
-          showUntilNextState();
-          setShortcut(event.payload?.shortcut || "Option+Command");
+        const unlistenReleased = await listen<VoiceHotkeyPayload>("voice-hotkey-released", () => {
           setState("released");
         });
-        const unlistenRegistered = await listen<VoiceHotkeyPayload>("voice-hotkey-registered", (event) => {
-          setShortcut(event.payload?.shortcut || "Option+Command");
+        const unlistenRegistered = await listen<VoiceHotkeyPayload>("voice-hotkey-registered", () => {
           setState("registered");
-          hideSoon(1400);
         });
-        const unlistenUnavailable = await listen<VoiceHotkeyPayload>("voice-hotkey-unavailable", (event) => {
-          setShortcut(event.payload?.shortcut || "Option+Command");
+        const unlistenUnavailable = await listen<VoiceHotkeyPayload>("voice-hotkey-unavailable", () => {
           setState("unavailable");
         });
         cleanup = () => {
@@ -81,7 +50,6 @@ export function VoiceHud() {
 
     void bind();
     return () => {
-      if (hideTimer) window.clearTimeout(hideTimer);
       window.removeEventListener("voice-talkback-start", onTalkBackStart);
       window.removeEventListener("voice-talkback-end", onTalkBackEnd);
       cleanup();
@@ -91,37 +59,69 @@ export function VoiceHud() {
   const listening = state === "listening";
   const released = state === "released";
   const speaking = state === "speaking";
+  const unavailable = state === "unavailable";
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-transparent p-3">
+    <div className="flex h-screen w-screen items-center justify-center bg-transparent p-2">
       <div
         className={cn(
-          "flex w-full items-center gap-3 rounded-lg border px-4 py-3 shadow-2xl backdrop-blur-xl transition-all",
+          "relative flex h-16 w-16 items-center justify-center rounded-lg border shadow-2xl backdrop-blur-xl transition-all duration-200",
           listening
-            ? "scale-100 border-red-400/40 bg-zinc-950/90 text-red-100"
+            ? "scale-105 border-red-300/70 bg-red-950/90 shadow-red-500/30"
             : released
-            ? "scale-95 border-emerald-400/40 bg-zinc-950/90 text-emerald-100"
+            ? "scale-100 border-emerald-300/60 bg-zinc-950/90 shadow-emerald-500/25"
             : speaking
-            ? "scale-100 border-primary/40 bg-zinc-950/90 text-zinc-100"
-            : "scale-95 border-zinc-700/70 bg-zinc-950/80 text-zinc-200"
+            ? "scale-105 border-cyan-300/60 bg-zinc-950/90 shadow-cyan-500/25"
+            : unavailable
+            ? "scale-95 border-amber-300/60 bg-zinc-950/90 shadow-amber-500/20"
+            : "scale-95 border-zinc-700/70 bg-zinc-950/80 shadow-black/40"
         )}
+        aria-label={
+          listening
+            ? "Listening"
+            : released
+            ? "Sending voice command"
+            : speaking
+            ? "Speaking response"
+            : unavailable
+            ? "Voice hotkey unavailable"
+            : "Voice hotkey ready"
+        }
       >
+        {listening && (
+          <>
+            <span className="absolute h-16 w-16 animate-ping rounded-lg bg-red-400/25" />
+            <span className="absolute h-20 w-20 rounded-lg border border-red-300/30" />
+          </>
+        )}
+        {speaking && <span className="absolute h-16 w-16 animate-pulse rounded-lg bg-cyan-400/15" />}
+        {released && <span className="absolute h-16 w-16 animate-pulse rounded-lg bg-emerald-400/15" />}
+
+        <img src="/favicon.svg" alt="" className="relative h-11 w-11 rounded-md" draggable={false} />
+
         <div
           className={cn(
-            "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
-            listening ? "bg-red-500/20 text-red-200" : released ? "bg-emerald-500/20 text-emerald-200" : speaking ? "bg-primary/20 text-primary" : "bg-zinc-800 text-zinc-300"
+            "absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-lg border text-[11px] shadow-lg",
+            listening
+              ? "border-red-200/60 bg-red-500 text-white"
+              : released
+              ? "border-emerald-200/60 bg-emerald-500 text-white"
+              : speaking
+              ? "border-cyan-200/60 bg-cyan-500 text-zinc-950"
+              : unavailable
+              ? "border-amber-200/60 bg-amber-500 text-zinc-950"
+              : "border-zinc-700 bg-zinc-900 text-zinc-300"
           )}
         >
-          {listening && <span className="absolute h-10 w-10 animate-ping rounded-lg bg-red-400/20" />}
-          {listening ? <Mic className="relative h-5 w-5" /> : released || speaking ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-        </div>
-        <div className="min-w-0">
-          <div className="text-sm font-semibold">
-            {listening ? "Listening" : released ? "Sending voice command" : speaking ? "Speaking response" : state === "unavailable" ? "Hotkey unavailable" : "Voice hotkey registered"}
-          </div>
-          <div className="mt-0.5 truncate text-xs text-zinc-400">
-            {listening ? `Release ${shortcut} to send` : released ? "Transcribing locally" : speaking ? "Talk-back is playing" : `Hold ${shortcut} to talk`}
-          </div>
+          {listening ? (
+            <Mic className="h-3.5 w-3.5" />
+          ) : released || speaking ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : unavailable ? (
+            <AlertTriangle className="h-3.5 w-3.5" />
+          ) : (
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+          )}
         </div>
       </div>
     </div>

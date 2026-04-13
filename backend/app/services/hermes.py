@@ -3,10 +3,15 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
+
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+OPENAI_GATEWAY_DEFAULT_MODEL = "gpt-5.4-mini"
+OPENAI_REASONING_MODEL_PREFIXES = ("gpt-5",)
 
 SECRET_PATTERNS = [
     re.compile(r"([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*=)([^\s]+)", re.I),
@@ -17,6 +22,20 @@ SECRET_PATTERNS = [
 
 def hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
+
+
+def ensure_hermes_python_path() -> None:
+    candidates = [
+        Path(os.environ.get("HERMES_AGENT_PATH", "")).expanduser() if os.environ.get("HERMES_AGENT_PATH") else None,
+        hermes_home() / "hermes-agent",
+        Path.home() / ".hermes" / "hermes-agent",
+    ]
+    for candidate in candidates:
+        if candidate and (candidate / "run_agent.py").exists():
+            path = str(candidate)
+            if path not in sys.path:
+                sys.path.insert(0, path)
+            return
 
 
 def redact(text: str) -> str:
@@ -127,12 +146,58 @@ class HermesConfig:
 
     def current(self) -> dict[str, Any]:
         try:
+            ensure_hermes_python_path()
             from hermes_cli.config import load_config
 
             config = load_config()
             return dict(config)
         except Exception:
             return {}
+
+    def normalize_openai_gateway_config(self) -> list[str]:
+        """Make direct OpenAI configs compatible with Hermes' gateway path.
+
+        Hermes' gateway uses the Responses API for direct OpenAI endpoints and,
+        when reasoning is enabled, requests encrypted reasoning content. Older
+        GPT-4/o-series models reject that include. Studio uses a GPT-5.4 model
+        for direct OpenAI gateway runs so Telegram/WhatsApp do not fail at the
+        first model call.
+        """
+        try:
+            ensure_hermes_python_path()
+            from hermes_cli.config import load_config, save_config
+
+            config = load_config()
+            model = config.get("model")
+            if not isinstance(model, dict):
+                return []
+
+            if not _is_direct_openai_model_config(model):
+                return []
+
+            changes: list[str] = []
+            current_model = str(model.get("default") or "").strip()
+            if not _is_openai_reasoning_model(current_model):
+                model["default"] = OPENAI_GATEWAY_DEFAULT_MODEL
+                changes.append(
+                    f"Updated OpenAI model from {current_model or 'unset'} to {OPENAI_GATEWAY_DEFAULT_MODEL} for gateway compatibility."
+                )
+
+            if model.get("provider") != "custom":
+                model["provider"] = "custom"
+                changes.append("Stored OpenAI as Hermes custom provider.")
+            if str(model.get("base_url") or "").rstrip("/") != OPENAI_BASE_URL:
+                model["base_url"] = OPENAI_BASE_URL
+                changes.append("Set OpenAI base URL.")
+            if model.get("api_mode") != "codex_responses":
+                model["api_mode"] = "codex_responses"
+                changes.append("Set OpenAI API mode to Responses.")
+
+            if changes:
+                save_config(config)
+            return changes
+        except Exception as exc:
+            return [f"Could not normalize OpenAI gateway config: {redact(str(exc))[:300]}"]
 
 
 def _quote_env(value: str) -> str:
@@ -258,6 +323,8 @@ class GatewayProcess:
             return self.status()
 
         self.logs = []
+        for line in HermesConfig().normalize_openai_gateway_config():
+            self.logs.append(line)
         self.process = await asyncio.create_subprocess_exec(
             self.command,
             "gateway",
@@ -292,3 +359,16 @@ class GatewayProcess:
 
 
 gateway_process = GatewayProcess()
+
+
+def _is_direct_openai_model_config(model: dict[str, Any]) -> bool:
+    provider = str(model.get("provider") or "").strip().lower()
+    base_url = str(model.get("base_url") or "").strip().lower().rstrip("/")
+    return provider == "custom" and "api.openai.com" in base_url and "openrouter" not in base_url
+
+
+def _is_openai_reasoning_model(model: str) -> bool:
+    normalized = str(model or "").strip().lower()
+    if "/" in normalized:
+        normalized = normalized.rsplit("/", 1)[-1]
+    return normalized.startswith(OPENAI_REASONING_MODEL_PREFIXES)

@@ -25,8 +25,8 @@
         "label": "voice-hud",
         "url": "index.html?voice-hud=1",
         "title": "Hermes Voice",
-        "width": 260,
-        "height": 108,
+        "width": 88,
+        "height": 88,
         "resizable": false,
         "maximizable": false,
         "minimizable": false,
@@ -39,7 +39,6 @@
         "focus": false,
         "focusable": false,
         "visible": false,
-        "center": true,
         "backgroundThrottling": "disabled"
       }
     ],
