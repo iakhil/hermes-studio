@@ -241,6 +241,7 @@ mod voice_hotkey {
                     start_native_recording(&emit_app);
                     "voice-hotkey-pressed"
                 } else {
+                    play_hotkey_released_sound();
                     stop_native_recording_and_run(emit_app.clone());
                     "voice-hotkey-released"
                 };
@@ -513,11 +514,19 @@ mod voice_hotkey {
     }
 
     fn play_hotkey_registered_sound() {
-        std::thread::spawn(|| {
+        play_system_sound("/System/Library/Sounds/Glass.aiff", "0.25");
+    }
+
+    fn play_hotkey_released_sound() {
+        play_system_sound("/System/Library/Sounds/Pop.aiff", "0.22");
+    }
+
+    fn play_system_sound(path: &'static str, volume: &'static str) {
+        std::thread::spawn(move || {
             let _ = Command::new("/usr/bin/afplay")
                 .arg("-v")
-                .arg("0.25")
-                .arg("/System/Library/Sounds/Glass.aiff")
+                .arg(volume)
+                .arg(path)
                 .status();
         });
     }
