@@ -5,6 +5,11 @@ import type { WSMessage, WSClientMessage } from "@/lib/types";
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingResponseRef = useRef<{
+    text: string;
+    resolve: (text: string) => void;
+    reject: (error: Error) => void;
+  } | null>(null);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -46,6 +51,7 @@ export function useWebSocket() {
         break;
       case "delta":
         s.appendDelta(msg.text);
+        if (pendingResponseRef.current) pendingResponseRef.current.text += msg.text;
         break;
       case "tool_start":
         s.addToolStart(msg.id, msg.name, msg.args);
@@ -61,9 +67,15 @@ export function useWebSocket() {
         break;
       case "error":
         s.setError(msg.message);
+        pendingResponseRef.current?.reject(new Error(msg.message));
+        pendingResponseRef.current = null;
         break;
       case "done":
         s.finishMessage(msg.usage ?? undefined);
+        if (pendingResponseRef.current) {
+          pendingResponseRef.current.resolve(pendingResponseRef.current.text.trim());
+          pendingResponseRef.current = null;
+        }
         break;
     }
   }, []);
@@ -80,6 +92,18 @@ export function useWebSocket() {
     s.startAssistantMessage();
     send({ type: "message", content });
   }, [send]);
+
+  const sendMessageAndWait = useCallback((content: string) => {
+    if (pendingResponseRef.current) {
+      pendingResponseRef.current.reject(new Error("Another voice response is still running."));
+      pendingResponseRef.current = null;
+    }
+    const response = new Promise<string>((resolve, reject) => {
+      pendingResponseRef.current = { text: "", resolve, reject };
+    });
+    sendMessage(content);
+    return response;
+  }, [sendMessage]);
 
   const interrupt = useCallback(() => {
     send({ type: "interrupt" });
@@ -98,5 +122,5 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  return { sendMessage, interrupt, newConversation, send };
+  return { sendMessage, sendMessageAndWait, interrupt, newConversation, send };
 }

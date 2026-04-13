@@ -9,6 +9,7 @@ dependencies = [
     "websockets>=13.0",
     "pydantic>=2.0",
     "python-dotenv>=1.0.0",
+    "httpx>=0.28.0",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,7 @@ dev = [
 voice = [
     "faster-whisper>=1.1.0",
     "mlx-whisper>=0.4.0; platform_system == 'Darwin'",
+    "mlx-audio-plus>=0.1.0; platform_system == 'Darwin'",
 ]
 
 [build-system]

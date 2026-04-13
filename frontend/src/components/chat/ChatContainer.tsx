@@ -1,13 +1,13 @@
 import { useRef, useEffect } from "react";
 import { useChatStore } from "@/stores/chatStore";
-import { useWebSocket } from "@/hooks/useWebSocket";
+import { useHermesChat } from "@/hooks/useHermesChat";
 import { MessageBubble } from "./MessageBubble";
 import { InputBar } from "./InputBar";
 import { Sparkles } from "lucide-react";
 
 export function ChatContainer() {
   const { messages, isStreaming, isConnected } = useChatStore();
-  const ws = useWebSocket();
+  const ws = useHermesChat();
   const { sendMessage, interrupt, newConversation } = ws;
   const scrollRef = useRef<HTMLDivElement>(null);
 

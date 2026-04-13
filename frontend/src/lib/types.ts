@@ -144,6 +144,23 @@ export interface VoiceTranscription {
   duration_ms: number;
 }
 
+export interface TtsEngineStatus {
+  id: string;
+  name: string;
+  available: boolean;
+  configured: boolean;
+  detail: string;
+  install_hint: string;
+}
+
+export interface TtsStatus {
+  configured: boolean;
+  active_engine?: string | null;
+  engines: TtsEngineStatus[];
+  elevenlabs_configured: boolean;
+  privacy: string;
+}
+
 export interface ComputerUseStatus {
   browser_cdp_url: string;
   chrome_connected: boolean;

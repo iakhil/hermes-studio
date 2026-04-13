@@ -86,6 +86,24 @@ Optional environment overrides:
 
 Open **Computer Use** to see whether a local voice engine is ready. Use the mic button in Chat to record a command, transcribe it locally, and send it to Hermes.
 
+In the macOS desktop app, hold **Option+Command** to record a voice command from anywhere in Hermes Studio. Release the keys to stop, transcribe locally, send the command to Hermes, and hear the response.
+
+Talk-back uses the first available TTS engine:
+
+```bash
+# Apple Silicon local TTS
+python3 -m pip install mlx-audio-plus
+
+# Hosted fallback
+export ELEVENLABS_API_KEY=...
+```
+
+Optional TTS overrides:
+
+- `HERMES_STUDIO_TTS_PROVIDER=mlx-audio|elevenlabs|macos-say|auto`
+- `MLX_AUDIO_TTS_MODEL=mlx-community/Kokoro-82M-bf16`
+- `ELEVENLABS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb`
+
 ## Computer Use
 
 Computer Use keeps native app requests native. Hermes Studio first routes supported Mac app tasks through macOS automation, then falls back to Hermes' normal tool harness for broader local work. The first native primitive creates notes in Apple Notes, so commands like this work without opening a browser:

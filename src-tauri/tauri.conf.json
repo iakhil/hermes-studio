@@ -12,12 +12,35 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Hermes Studio",
         "width": 1180,
         "height": 820,
         "minWidth": 940,
         "minHeight": 680,
-        "resizable": true
+        "resizable": true,
+        "backgroundThrottling": "disabled"
+      },
+      {
+        "label": "voice-hud",
+        "url": "index.html?voice-hud=1",
+        "title": "Hermes Voice",
+        "width": 260,
+        "height": 108,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "closable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visibleOnAllWorkspaces": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "focusable": false,
+        "visible": false,
+        "center": true,
+        "backgroundThrottling": "disabled"
       }
     ],
     "security": {

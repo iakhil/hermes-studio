@@ -59,6 +59,17 @@ export const api = {
 
   // Local voice
   voiceStatus: () => request<import("./types").VoiceStatus>("/voice/status"),
+  ttsStatus: () => request<import("./types").TtsStatus>("/voice/tts/status"),
+  configureTts: (data: {
+    provider?: string | null;
+    elevenlabs_api_key?: string | null;
+    elevenlabs_voice_id?: string | null;
+    mlx_model?: string | null;
+  }) =>
+    request<import("./types").TtsStatus>("/voice/tts/config", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   transcribeVoice: async (audio: Blob) => {
     const res = await fetch(`${BASE}/voice/transcribe`, {
       method: "POST",
@@ -70,6 +81,18 @@ export const api = {
       throw new Error(`Voice transcription failed ${res.status}: ${body}`);
     }
     return res.json() as Promise<import("./types").VoiceTranscription>;
+  },
+  synthesizeVoice: async (text: string, provider?: string) => {
+    const res = await fetch(`${BASE}/voice/speak`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, provider }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Voice synthesis failed ${res.status}: ${body}`);
+    }
+    return res.blob();
   },
 
   // Computer use

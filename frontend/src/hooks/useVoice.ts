@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 interface UseSpeechToTextReturn {
@@ -154,4 +154,56 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
   }, [supported]);
 
   return { speak, stop, isSpeaking, supported };
+}
+
+export function useAgentTalkBack() {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [error, setError] = useState("");
+
+  const stop = useCallback(() => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = null;
+    setIsSpeaking(false);
+  }, []);
+
+  const speak = useCallback(
+    async (text: string) => {
+      const clean = text.trim();
+      if (!clean) return;
+      stop();
+      setError("");
+      try {
+        const audio = await api.synthesizeVoice(clean);
+        const url = URL.createObjectURL(audio);
+        objectUrlRef.current = url;
+        const player = new Audio(url);
+        audioRef.current = player;
+        setIsSpeaking(true);
+        await player.play();
+        await new Promise<void>((resolve) => {
+          player.onended = () => {
+            stop();
+            resolve();
+          };
+          player.onerror = () => {
+            setError("Could not play assistant voice.");
+            stop();
+            resolve();
+          };
+        });
+      } catch (err: any) {
+        setError(err?.message || "Could not synthesize assistant voice.");
+        setIsSpeaking(false);
+      }
+    },
+    [stop]
+  );
+
+  useEffect(() => stop, [stop]);
+
+  return { speak, stop, isSpeaking, error };
 }

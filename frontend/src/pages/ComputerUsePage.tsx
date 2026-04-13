@@ -9,7 +9,7 @@ import {
   requestScreenRecordingPermission,
   type MacPermissionStatus,
 } from "@/lib/native";
-import type { ComputerUseStatus, DoctorStatus, VoiceStatus } from "@/lib/types";
+import type { ComputerUseStatus, DoctorStatus, TtsStatus, VoiceStatus } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -60,6 +60,7 @@ export function ComputerUsePage() {
   const [tools, setTools] = useState<ToolSet[]>([]);
   const [doctor, setDoctor] = useState<DoctorStatus | null>(null);
   const [voice, setVoice] = useState<VoiceStatus | null>(null);
+  const [tts, setTts] = useState<TtsStatus | null>(null);
   const [computerUse, setComputerUse] = useState<ComputerUseStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
@@ -76,15 +77,17 @@ export function ComputerUsePage() {
     setLoading(true);
     setError("");
     try {
-      const [toolData, doctorData, voiceData, computerUseData] = await Promise.all([
+      const [toolData, doctorData, voiceData, ttsData, computerUseData] = await Promise.all([
         api.getTools(),
         api.doctor(),
         api.voiceStatus(),
+        api.ttsStatus(),
         api.computerUseStatus(),
       ]);
       setTools(toolData);
       setDoctor(doctorData);
       setVoice(voiceData);
+      setTts(ttsData);
       setComputerUse(computerUseData);
       setNativeStatus(await macPermissionStatus());
     } catch (e: any) {
@@ -241,7 +244,7 @@ export function ComputerUsePage() {
               <StatusPanel doctor={doctor} ready={ready} requiredReady={requiredReady} recommendedReady={recommendedReady} voiceReady={Boolean(voice?.configured)} browserReady={Boolean(computerUse?.chrome_connected)} />
               <NativeAutomationPanel />
               <BrowserSessionPanel status={computerUse} loading={connectingBrowser} onConnect={connectBrowser} />
-              <VoicePanel voice={voice} />
+              <VoicePanel voice={voice} tts={tts} onReload={load} />
               <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
                   <Volume2 className="h-4 w-4 text-primary" />
@@ -371,9 +374,28 @@ function BrowserSessionPanel({
   );
 }
 
-function VoicePanel({ voice }: { voice: VoiceStatus | null }) {
+function VoicePanel({ voice, tts, onReload }: { voice: VoiceStatus | null; tts: TtsStatus | null; onReload: () => Promise<void> }) {
   const active = voice?.engines.find((engine) => engine.id === voice.active_engine);
+  const activeTts = tts?.engines.find((engine) => engine.id === tts.active_engine);
   const install = voice?.engines.find((engine) => !engine.available);
+  const installTts = tts?.engines.find((engine) => !engine.available);
+  const [elevenLabsKey, setElevenLabsKey] = useState("");
+  const [savingTts, setSavingTts] = useState(false);
+
+  async function saveElevenLabs() {
+    setSavingTts(true);
+    try {
+      await api.configureTts({
+        provider: "elevenlabs",
+        elevenlabs_api_key: elevenLabsKey,
+      });
+      setElevenLabsKey("");
+      await onReload();
+    } finally {
+      setSavingTts(false);
+    }
+  }
+
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -385,7 +407,28 @@ function VoicePanel({ voice }: { voice: VoiceStatus | null }) {
           <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-emerald-300">
             Local STT: {active?.name || voice.active_engine}
           </div>
-          <p>Use the mic in Chat. Audio is transcribed by the local backend before the command is sent to Hermes.</p>
+          <div className={cn("rounded-lg px-3 py-2", tts?.configured ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300")}>
+            Talk-back: {activeTts?.name || tts?.active_engine || "not configured"}
+          </div>
+          <p>Use the mic in Chat, or hold Option+Command anywhere in Hermes Studio to record. Release the keys to transcribe and send the command.</p>
+          {!tts?.configured && (
+            <Prompt>{installTts?.install_hint || "python3 -m pip install mlx-audio"}</Prompt>
+          )}
+          {!tts?.elevenlabs_configured && (
+            <div className="space-y-2">
+              <input
+                type="password"
+                value={elevenLabsKey}
+                onChange={(event) => setElevenLabsKey(event.target.value)}
+                placeholder="ElevenLabs API key"
+                className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-foreground outline-none focus:border-primary/50"
+              />
+              <Button size="sm" variant="outline" onClick={saveElevenLabs} disabled={!elevenLabsKey.trim() || savingTts}>
+                {savingTts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                Use ElevenLabs
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-2 text-xs text-muted-foreground">
