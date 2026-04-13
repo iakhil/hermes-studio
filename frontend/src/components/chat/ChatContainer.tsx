@@ -61,9 +61,9 @@ function EmptyState({ onSend }: { onSend: (msg: string) => void }) {
       </p>
       <div className="mt-8 grid grid-cols-2 gap-3 max-w-sm w-full">
         {[
-          "Open Notes and create a note called shopping list",
+          "Open Notes and write a short poem",
           "Open Calendar and draft an event for tomorrow at 9 AM",
-          "Open WhatsApp and prepare a message to Mom",
+          "Open WhatsApp and draft a message to Mom",
           "Open Music and play a playlist",
         ].map((prompt) => (
           <button

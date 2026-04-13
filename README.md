@@ -30,7 +30,7 @@ Hermes Studio focuses on the high-value path:
 - Guided Hermes install and provider setup.
 - Web chat with streamed agent responses.
 - Computer Use preset for native app automation, browser, terminal, vision, files, memory, TTS, web, and cron tools.
-- Native Notes automation for creating notes from chat or voice commands.
+- Generic native macOS computer-use bridge for screen observation, app launching, clicks, keys, and text entry.
 - Optional live Chrome connection for explicit website control through Hermes browser tools.
 - macOS permission checklist for local computer-use workflows.
 - Native macOS shell scaffold with Accessibility status checks and deep links to Privacy & Security panes.
@@ -106,10 +106,10 @@ Optional TTS overrides:
 
 ## Computer Use
 
-Computer Use keeps native app requests native. Hermes Studio first routes supported Mac app tasks through macOS automation, then falls back to Hermes' normal tool harness for broader local work. The first native primitive creates notes in Apple Notes, so commands like this work without opening a browser:
+Computer Use keeps native app requests native. Hermes Studio exposes a general macOS computer-use bridge that lets Hermes observe the screen, open apps, click, press keys, paste generated text, and repeat until the requested state is visible. Commands like this should work without opening a browser:
 
 ```text
-Open Notes and create a note called shopping list.
+Open Notes and write a short poem.
 ```
 
 macOS may ask for Automation or Accessibility permission the first time Hermes Studio controls an app.

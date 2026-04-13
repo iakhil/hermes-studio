@@ -252,9 +252,9 @@ export function ComputerUsePage() {
                 </div>
                 <div className="space-y-2 text-xs text-muted-foreground">
                   <p>After the preset is ready, use chat or voice:</p>
-                  <Prompt>Open Notes and create a note called shopping list.</Prompt>
+                  <Prompt>Open Notes and write a short poem.</Prompt>
                   <Prompt>Open Calendar and draft an event for tomorrow at 9 AM.</Prompt>
-                  <Prompt>Open WhatsApp and prepare a message to Mom.</Prompt>
+                  <Prompt>Open WhatsApp and draft a message to Mom.</Prompt>
                 </div>
                 <Button className="mt-4 w-full" disabled={!ready} onClick={() => navigate("/")}>
                   Open Chat
@@ -326,14 +326,14 @@ function NativeAutomationPanel() {
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
         <Terminal className="h-4 w-4 text-primary" />
-        Native App Automation
+        Native Computer Use
       </div>
       <div className="space-y-3 text-xs text-muted-foreground">
         <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-emerald-300">
-          Notes note creation is enabled.
+          General native control is enabled.
         </div>
         <p>
-          Native app requests stay native. macOS may ask for Automation or Accessibility permission the first time Hermes controls an app.
+          Hermes can observe the screen, open apps, click, press keys, and paste text through macOS automation. It should keep working until the requested change is visible.
         </p>
       </div>
     </div>

@@ -1,12 +1,10 @@
 import asyncio
 import os
 import re
-import subprocess
 import sys
 import uuid
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote_plus
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -41,11 +39,6 @@ class AgentSession:
         self.conversation.append({"role": "user", "content": content})
         self._interrupt = False
 
-        handled = await self._try_handle_native_mac_action(content)
-        if handled:
-            self.conversation.append({"role": "assistant", "content": handled})
-            return
-
         try:
             response = await self._run_with_library(content)
         except (ImportError, ModuleNotFoundError) as exc:
@@ -78,6 +71,7 @@ class AgentSession:
 
         hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
         load_hermes_dotenv(hermes_home=hermes_home)
+        _set_studio_process_env()
 
         config = load_config()
         loop = asyncio.get_event_loop()
@@ -198,44 +192,6 @@ class AgentSession:
         await self.send({"type": "done", "usage": None})
         return final_response or "".join(accumulated_text)
 
-    async def _try_handle_native_mac_action(self, content: str) -> Optional[str]:
-        action = _native_action_from_prompt(content)
-        if not action:
-            return None
-
-        tool_id = str(uuid.uuid4())[:8]
-        await self.send({
-            "type": "tool_start",
-            "id": tool_id,
-            "name": action["tool"],
-            "args": action["args"],
-        })
-        try:
-            result = await asyncio.to_thread(_run_native_action, action)
-        except Exception as exc:
-            message = _summarize_native_action_error(exc)
-            await self.send({
-                "type": "tool_complete",
-                "id": tool_id,
-                "name": action["tool"],
-                "result": message,
-                "duration_ms": 0,
-            })
-            await self.send({"type": "error", "message": message})
-            await self.send({"type": "done", "usage": None})
-            return message
-
-        await self.send({
-            "type": "tool_complete",
-            "id": tool_id,
-            "name": action["tool"],
-            "result": result,
-            "duration_ms": 0,
-        })
-        await self.send({"type": "delta", "text": result})
-        await self.send({"type": "done", "usage": None})
-        return result
-
     async def _run_with_cli(self, content: str) -> Optional[str]:
         """Run hermes via CLI subprocess with sanitized streaming."""
         await self.send({"type": "status", "message": "Running Hermes..."})
@@ -245,10 +201,12 @@ class AgentSession:
             await self.send({"type": "done", "usage": None})
             return None
 
+        env = _set_studio_process_env()
         process = await asyncio.create_subprocess_exec(
             "hermes", "chat", "-Q", "-q", content,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
 
         full_response: list[str] = []
@@ -394,6 +352,20 @@ def _ensure_hermes_python_path() -> None:
             if path not in sys.path:
                 sys.path.insert(0, path)
             return
+
+
+def _studio_backend_path() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _set_studio_process_env() -> dict[str, str]:
+    backend_path = str(_studio_backend_path())
+    os.environ["HERMES_STUDIO_BACKEND_PATH"] = backend_path
+    existing = os.environ.get("PYTHONPATH", "")
+    paths = [part for part in existing.split(os.pathsep) if part]
+    if backend_path not in paths:
+        os.environ["PYTHONPATH"] = os.pathsep.join([backend_path, *paths])
+    return os.environ.copy()
 
 
 def _clean_cli_output(text: str) -> str:
@@ -580,11 +552,12 @@ def _studio_system_prompt(enabled_toolsets: list[str] | None) -> str:
     if not enabled_toolsets:
         return ""
 
+    bridge_command = f'PYTHONPATH="{_studio_backend_path()}" python3 -m app.services.native_computer_use'
     lines = [
         "You are running inside Hermes Studio, a desktop GUI for controlling the user's Mac.",
         "For any computer-use request, act through tools and visible UI state. Do not merely describe what the user could do.",
         "Native macOS apps are in scope. Web apps are out of scope unless the user explicitly asks for a website. Do not replace a native app request with a browser version of that app.",
-        "For native macOS apps, prefer AppleScript/JXA through the terminal tool only when an app has a real scripting dictionary for the requested action. Do not invent AppleScript commands such as WhatsApp send/contact APIs.",
+        "Use the generic native bridge below as the default for native macOS apps. AppleScript/JXA is allowed for generic OS automation or when a visible UI path is unavailable and the app has a real scripting dictionary. Do not invent app commands such as WhatsApp send/contact APIs.",
         "Use Accessibility/UI scripting for apps without scripting support, including WhatsApp. If System Events is not authorized, stop and ask the user to grant Accessibility permission.",
         "For browser-only requests, use browser_navigate first, then observe with browser_snapshot or browser_vision, then click/type/press/scroll as needed.",
         "For irreversible or externally visible actions such as sending messages, sending email, posting to social media, calling someone, buying something, deleting data, or changing account settings, prepare the draft/action but ask for explicit confirmation before the final submit/send/post/call click.",
@@ -594,246 +567,18 @@ def _studio_system_prompt(enabled_toolsets: list[str] | None) -> str:
         lines.append("The browser toolset is enabled, but use it only for explicit website/browser tasks.")
     if "terminal" in enabled_toolsets:
         lines.append("The terminal toolset is enabled for local command, AppleScript, and native app automation tasks.")
+        lines.extend([
+            "Hermes Studio provides a generic native macOS computer-use bridge through the terminal tool. Use it for native app tasks instead of app-specific shortcuts:",
+            f"{bridge_command} status",
+            f"{bridge_command} observe",
+            f'{bridge_command} open-app --name "Notes"',
+            f"{bridge_command} click --x 500 --y 300",
+            f'{bridge_command} paste --text "text to insert"',
+            f"{bridge_command} hotkey --keys command,n",
+            f"{bridge_command} press --key return",
+            f"{bridge_command} scroll --direction down --amount 2",
+            "For native UI tasks, loop until the visible UI reflects the goal: observe, call vision_analyze with image_url set to the returned screenshot_path when needed, perform one or two bridge actions, then observe again.",
+            "Use paste for generated prose, email drafts, notes, and messages. For multi-line text, use paste --stdin. Use click coordinates only after observing the screen or analyzing a screenshot.",
+            "Do not stop after opening an app when the user asked you to write, search, draft, schedule, or change something inside it.",
+        ])
     return "\n".join(lines)
-
-
-def _browser_target_from_prompt(content: str) -> str | None:
-    text = " ".join(str(content or "").strip().split())
-    if not text:
-        return None
-
-    lowered = text.lower()
-    browser_intent = any(
-        phrase in lowered
-        for phrase in (
-            "open browser",
-            "open the browser",
-            "open chrome",
-            "open safari",
-            "open a browser",
-            "launch browser",
-            "launch the browser",
-        )
-    )
-    if not browser_intent:
-        return None
-
-    url_match = re.search(r"https?://[^\s)>\]]+", text)
-    if url_match:
-        return url_match.group(0)
-
-    domain_match = re.search(
-        r"\b(?:[a-z0-9-]+\.)+(?:com|org|net|io|ai|dev|app|co|news|edu|gov)(?:/[^\s]*)?",
-        text,
-        flags=re.IGNORECASE,
-    )
-    if domain_match:
-        target = domain_match.group(0)
-        return target if target.startswith(("http://", "https://")) else f"https://{target}"
-
-    search_match = re.search(
-        r"\b(?:search(?: for)?|look up|google)\s+(.+?)(?:\s+and\s+tell\b|$)",
-        text,
-        flags=re.IGNORECASE,
-    )
-    query = search_match.group(1).strip(" .") if search_match else ""
-    if not query and "news" in lowered:
-        query = "latest news"
-    if not query:
-        query = "news"
-
-    return f"https://www.google.com/search?q={quote_plus(query)}"
-
-
-def _native_action_from_prompt(content: str) -> dict | None:
-    text = " ".join(str(content or "").strip().split())
-    if not text:
-        return None
-    lowered = text.lower()
-
-    if "notes" in lowered or "note app" in lowered or "notes app" in lowered:
-        title = _extract_note_title(text)
-        if title and any(phrase in lowered for phrase in ("create", "new note", "make", "add")):
-            return {
-                "tool": "native_notes_create_note",
-                "args": {"title": title},
-            }
-    if "whatsapp" in lowered and any(phrase in lowered for phrase in ("text", "message", "send", "prepare", "draft")):
-        draft = _extract_whatsapp_draft(text)
-        if draft:
-            return {
-                "tool": "native_whatsapp_prepare_message",
-                "args": draft,
-            }
-    return None
-
-
-def _extract_note_title(text: str) -> str | None:
-    patterns = [
-        r"(?:called|named|titled)\s+['\"]([^'\"]+)['\"]",
-        r"(?:called|named|titled)\s+(.+?)(?:\s+in\s+notes|\s+in\s+the\s+notes\s+app|$)",
-        r"note\s+['\"]([^'\"]+)['\"]",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
-            title = match.group(1).strip(" .")
-            if title:
-                return title[:120]
-    return None
-
-
-def _run_native_action(action: dict) -> str:
-    if action.get("tool") == "native_notes_create_note":
-        title = str(action.get("args", {}).get("title") or "").strip()
-        if not title:
-            raise RuntimeError("Missing note title.")
-        _create_notes_note(title)
-        return f"Created a new note in Notes called \"{title}\"."
-    if action.get("tool") == "native_whatsapp_prepare_message":
-        args = action.get("args", {})
-        recipient = str(args.get("recipient") or "").strip()
-        message = str(args.get("message") or "").strip()
-        if not recipient or not message:
-            raise RuntimeError("Missing WhatsApp recipient or message.")
-        _prepare_whatsapp_message(recipient, message)
-        return f"Prepared a WhatsApp draft to {recipient}: \"{message}\". I did not send it."
-    raise RuntimeError(f"Unsupported native action: {action.get('tool')}")
-
-
-def _create_notes_note(title: str) -> None:
-    escaped_title = _applescript_string(title)
-    body = _applescript_string(f"<h1>{_html_escape(title)}</h1>")
-    script = f'''
-tell application "Notes"
-    activate
-    set noteTitle to {escaped_title}
-    set noteBody to {body}
-    try
-        set targetFolder to folder "Notes" of default account
-    on error
-        set targetFolder to first folder of default account
-    end try
-    make new note at targetFolder with properties {{name:noteTitle, body:noteBody}}
-end tell
-'''
-    result = subprocess.run(
-        ["osascript", "-e", script],
-        capture_output=True,
-        text=True,
-        timeout=20,
-        check=False,
-    )
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "Notes automation failed."
-        raise RuntimeError(detail)
-
-
-def _extract_whatsapp_draft(text: str) -> dict | None:
-    normalized = " ".join(str(text or "").strip().split())
-    patterns = [
-        ("message_first", r"\b(?:send|text|message)\s+['\"]([^'\"]+)['\"]\s+to\s+(.+?)(?:\s+(?:on|in)\s+whatsapp|$)"),
-        ("message_first", r"\b(?:send|text|message)\s+(.+?)\s+to\s+(.+?)(?:\s+(?:on|in)\s+whatsapp|$)"),
-        ("recipient_first", r"\bprepare\s+(?:a\s+)?message\s+to\s+(.+?)\s+(?:saying|with)\s+['\"]([^'\"]+)['\"]"),
-        ("recipient_first", r"\bprepare\s+(?:a\s+)?message\s+to\s+(.+?)\s+(?:saying|with)\s+(.+?)(?:\s+(?:on|in)\s+whatsapp|$)"),
-        ("recipient_first", r"\b(?:text|message)\s+(.+?)\s+(?:saying|with)\s+['\"]([^'\"]+)['\"]"),
-        ("recipient_first", r"\b(?:text|message)\s+(.+?)\s+(?:saying|with)\s+(.+?)(?:\s+(?:on|in)\s+whatsapp|$)"),
-    ]
-    for mode, pattern in patterns:
-        match = re.search(pattern, normalized, flags=re.IGNORECASE)
-        if not match:
-            continue
-        if mode == "message_first":
-            message, recipient = match.group(1), match.group(2)
-        else:
-            recipient, message = match.group(1), match.group(2)
-        recipient = _clean_contact_name(recipient)
-        message = _clean_message_text(message)
-        if recipient and message:
-            return {"recipient": recipient[:120], "message": message[:1000]}
-    compact_match = re.search(
-        r"\b(?:open\s+whatsapp\s+and\s+)?(?:text|message)\s+((?!(?:to|saying|with)\b)[A-Za-z][\w .'-]*?)\s+(.+?)(?:\s+(?:on|in)\s+whatsapp|$)",
-        normalized,
-        flags=re.IGNORECASE,
-    )
-    if compact_match:
-        recipient = _clean_contact_name(compact_match.group(1))
-        message = _clean_message_text(compact_match.group(2))
-        if recipient and message:
-            return {"recipient": recipient[:120], "message": message[:1000]}
-    return None
-
-
-def _clean_contact_name(value: str) -> str:
-    value = re.sub(r"^(?:open\s+whatsapp\s+and\s+)?", "", value.strip(), flags=re.IGNORECASE)
-    value = re.sub(r"\s+(?:on|in)\s+whatsapp$", "", value, flags=re.IGNORECASE)
-    return value.strip(" .'\"")
-
-
-def _clean_message_text(value: str) -> str:
-    value = re.sub(r"\s+(?:on|in)\s+whatsapp$", "", value.strip(), flags=re.IGNORECASE)
-    return value.strip(" .'\"")
-
-
-def _prepare_whatsapp_message(recipient: str, message: str) -> None:
-    script = f'''
-tell application "WhatsApp" to activate
-delay 1.0
-tell application "System Events"
-    if not (exists process "WhatsApp") then error "WhatsApp is not running."
-    tell process "WhatsApp"
-        set frontmost to true
-    end tell
-    delay 0.4
-    keystroke "f" using {{command down}}
-    delay 0.3
-    keystroke {_applescript_string(recipient)}
-    delay 1.0
-    key code 125
-    key code 36
-    delay 0.6
-    keystroke {_applescript_string(message)}
-end tell
-'''
-    result = subprocess.run(
-        ["osascript", "-e", script],
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
-    )
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "WhatsApp automation failed."
-        raise RuntimeError(detail)
-
-
-def _applescript_string(value: str) -> str:
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-def _html_escape(value: str) -> str:
-    return (
-        value.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
-
-
-def _summarize_native_action_error(exc: Exception) -> str:
-    raw = redact(str(exc))
-    if (
-        "not authorized to send Apple events" in raw
-        or "Not authorized" in raw
-        or "not allowed assistive access" in raw
-        or "assistive access" in raw
-    ):
-        return (
-            "Hermes Studio is not allowed to control native apps yet. Open macOS "
-            "Privacy & Security > Accessibility and Automation, then allow Hermes Studio or the launching terminal."
-        )
-    if "Can’t get process \"WhatsApp\"" in raw or "WhatsApp is not running" in raw:
-        return "Could not control WhatsApp. Make sure WhatsApp is installed, open, and logged in."
-    if "Application isn’t running" in raw or "Can’t get application" in raw:
-        return "Could not control the native app. Make sure the app is installed and try again."
-    return f"Native app automation failed: {raw[:500]}"
