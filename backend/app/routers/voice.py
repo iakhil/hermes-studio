@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import os
 import re
@@ -11,10 +12,10 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from app.services.hermes import HermesConfig
+from app.services.hermes import HermesConfig, studio_env, studio_path
 
 router = APIRouter(prefix="/voice")
 
@@ -31,6 +32,33 @@ class SpeakRequest(BaseModel):
     provider: str | None = None
 
 
+class SttInstallRequest(BaseModel):
+    engine: str = "whisper.cpp"
+    model: str = "base.en"
+
+
+WHISPER_CPP_MODELS: dict[str, dict[str, str]] = {
+    "base.en": {
+        "name": "Base English",
+        "filename": "ggml-base.en.bin",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+        "detail": "Recommended balance for voice commands.",
+    },
+    "tiny.en": {
+        "name": "Tiny English",
+        "filename": "ggml-tiny.en.bin",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
+        "detail": "Fastest local model. Good for quick commands.",
+    },
+    "small.en": {
+        "name": "Small English",
+        "filename": "ggml-small.en.bin",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+        "detail": "More accurate, slower, and a larger download.",
+    },
+}
+
+
 @router.get("/status")
 async def voice_status() -> dict[str, Any]:
     engines = _engine_status()
@@ -39,8 +67,9 @@ async def voice_status() -> dict[str, Any]:
         "configured": configured is not None,
         "active_engine": configured["id"] if configured else None,
         "engines": engines,
+        "install_options": _stt_install_options(),
         "recording": {
-            "format": "webm/opus",
+            "format": "m4a/mp4 or webm/opus",
             "privacy": "Audio is sent only to the local Hermes Studio backend.",
         },
     }
@@ -130,34 +159,53 @@ async def speak(req: SpeakRequest) -> Response:
     )
 
 
+@router.post("/stt/install")
+async def install_stt(req: SttInstallRequest) -> StreamingResponse:
+    async def stream_install():
+        async for line in _install_stt_stream(req):
+            yield f"data: {line}\n\n"
+
+    return StreamingResponse(stream_install(), media_type="text/event-stream")
+
+
 def _engine_status() -> list[dict[str, Any]]:
-    whisper_cpp_path = (
-        shutil.which("whisper-cli")
-        or shutil.which("whisper-cpp")
-        or shutil.which("main")
-    )
-    whisper_cpp_model = os.getenv("WHISPER_CPP_MODEL", "").strip()
+    whisper_cpp_path = _whisper_cpp_binary()
+    whisper_cpp_model = _whisper_cpp_model_path()
+    mlx_python = _external_python_with_module("mlx_whisper")
+    faster_python = _external_python_with_module("faster_whisper")
     return [
         {
             "id": "mlx-whisper",
             "name": "MLX Whisper",
-            "available": importlib.util.find_spec("mlx_whisper") is not None,
-            "detail": "Apple Silicon local Whisper via MLX.",
+            "available": importlib.util.find_spec("mlx_whisper") is not None or mlx_python is not None,
+            "detail": (
+                "Apple Silicon local Whisper via MLX."
+                if mlx_python is None
+                else f"Apple Silicon local Whisper via {mlx_python}."
+            ),
             "install_hint": "python3 -m pip install mlx-whisper",
         },
         {
             "id": "faster-whisper",
             "name": "faster-whisper",
-            "available": importlib.util.find_spec("faster_whisper") is not None,
-            "detail": "Local Whisper runtime. Uses CPU on any Mac and can use accelerated backends when installed.",
+            "available": importlib.util.find_spec("faster_whisper") is not None or faster_python is not None,
+            "detail": (
+                "Local Whisper runtime. Uses CPU on any Mac and can use accelerated backends when installed."
+                if faster_python is None
+                else f"Local Whisper runtime via {faster_python}."
+            ),
             "install_hint": "python3 -m pip install faster-whisper",
         },
         {
             "id": "whisper.cpp",
             "name": "whisper.cpp",
             "available": bool(whisper_cpp_path and whisper_cpp_model),
-            "detail": "Native local whisper.cpp binary. Requires WHISPER_CPP_MODEL to point at a .bin model.",
-            "install_hint": "brew install whisper-cpp and set WHISPER_CPP_MODEL=/path/to/ggml-base.en.bin",
+            "detail": (
+                f"Native local speech-to-text at {whisper_cpp_path}."
+                if whisper_cpp_path and whisper_cpp_model
+                else "Native local speech-to-text for packaged Hermes Studio."
+            ),
+            "install_hint": "Use Setup to install local voice.",
         },
     ]
 
@@ -165,17 +213,19 @@ def _engine_status() -> list[dict[str, Any]]:
 def _transcribe_local(audio_path: Path) -> tuple[str, str]:
     preferred = os.getenv("HERMES_STUDIO_STT_ENGINE", "auto").strip().lower()
     engines = ["mlx-whisper", "faster-whisper", "whisper.cpp"]
-    if preferred and preferred != "auto":
+    # Earlier setup builds pinned whisper.cpp. Prefer MLX/faster-whisper when
+    # they exist because that matches the dev backend and is much more usable.
+    if preferred and preferred not in {"auto", "whisper.cpp"}:
         engines = [preferred, *[engine for engine in engines if engine != preferred]]
 
     errors: list[str] = []
     attempted: list[str] = []
     for engine in engines:
         try:
-            if engine == "mlx-whisper" and importlib.util.find_spec("mlx_whisper") is not None:
+            if engine == "mlx-whisper" and _mlx_whisper_available():
                 attempted.append(engine)
                 return _transcribe_mlx(audio_path), "mlx-whisper"
-            if engine == "faster-whisper" and importlib.util.find_spec("faster_whisper") is not None:
+            if engine == "faster-whisper" and _faster_whisper_available():
                 attempted.append(engine)
                 return _transcribe_faster_whisper(audio_path), "faster-whisper"
             if engine == "whisper.cpp":
@@ -199,13 +249,16 @@ def _transcribe_local(audio_path: Path) -> tuple[str, str]:
 
 
 def _whisper_cpp_available() -> bool:
-    binary = shutil.which("whisper-cli") or shutil.which("whisper-cpp") or shutil.which("main")
-    model = os.getenv("WHISPER_CPP_MODEL", "").strip()
+    binary = _whisper_cpp_binary()
+    model = _whisper_cpp_model_path()
     return bool(binary and model)
 
 
 def _transcribe_mlx(audio_path: Path) -> str:
-    import mlx_whisper
+    if importlib.util.find_spec("mlx_whisper") is None:
+        return _transcribe_mlx_external(audio_path)
+
+    mlx_whisper = importlib.import_module("mlx_whisper")
 
     model = os.getenv("MLX_WHISPER_MODEL", "mlx-community/whisper-base.en-mlx")
     result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=model)
@@ -213,31 +266,307 @@ def _transcribe_mlx(audio_path: Path) -> str:
 
 
 def _transcribe_faster_whisper(audio_path: Path) -> str:
-    from faster_whisper import WhisperModel
+    if importlib.util.find_spec("faster_whisper") is None:
+        return _transcribe_faster_whisper_external(audio_path)
+
+    faster_whisper = importlib.import_module("faster_whisper")
 
     model_size = os.getenv("FASTER_WHISPER_MODEL", "base.en")
     device = os.getenv("FASTER_WHISPER_DEVICE", "cpu")
     compute_type = os.getenv("FASTER_WHISPER_COMPUTE_TYPE", "int8")
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    model = faster_whisper.WhisperModel(model_size, device=device, compute_type=compute_type)
     segments, _info = model.transcribe(str(audio_path), beam_size=1, vad_filter=False)
     return " ".join(segment.text.strip() for segment in segments).strip()
 
 
+def _mlx_whisper_available() -> bool:
+    return importlib.util.find_spec("mlx_whisper") is not None or _external_python_with_module("mlx_whisper") is not None
+
+
+def _faster_whisper_available() -> bool:
+    return importlib.util.find_spec("faster_whisper") is not None or _external_python_with_module("faster_whisper") is not None
+
+
+def _external_python_with_module(module: str) -> str | None:
+    for executable in _python_candidates():
+        result = subprocess.run(
+            [
+                executable,
+                "-c",
+                f"import importlib.util, sys; sys.exit(0 if importlib.util.find_spec({module!r}) else 1)",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=studio_env(),
+        )
+        if result.returncode == 0:
+            return executable
+    return None
+
+
+def _python_candidates() -> list[str]:
+    candidates = [
+        os.getenv("HERMES_STUDIO_VOICE_PYTHON", "").strip(),
+        shutil.which("python3", path=studio_path()) or "",
+        "/opt/homebrew/bin/python3",
+        "/usr/local/bin/python3",
+        "/usr/bin/python3",
+    ]
+    framework_dir = Path("/Library/Frameworks/Python.framework/Versions")
+    if framework_dir.exists():
+        candidates.extend(
+            str(path)
+            for path in sorted(framework_dir.glob("*/bin/python3"), reverse=True)
+        )
+    result: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in result and Path(candidate).exists():
+            result.append(candidate)
+    return result
+
+
+def _transcribe_mlx_external(audio_path: Path) -> str:
+    python = _external_python_with_module("mlx_whisper")
+    if not python:
+        raise RuntimeError("mlx-whisper is not available to the packaged app.")
+
+    model = os.getenv("MLX_WHISPER_MODEL", "mlx-community/whisper-base.en-mlx")
+    script = (
+        "import mlx_whisper, sys; "
+        "result = mlx_whisper.transcribe(sys.argv[1], path_or_hf_repo=sys.argv[2]); "
+        "print(result.get('text', '') if isinstance(result, dict) else result)"
+    )
+    return _run_external_transcriber([python, "-c", script, str(audio_path), model])
+
+
+def _transcribe_faster_whisper_external(audio_path: Path) -> str:
+    python = _external_python_with_module("faster_whisper")
+    if not python:
+        raise RuntimeError("faster-whisper is not available to the packaged app.")
+
+    model_size = os.getenv("FASTER_WHISPER_MODEL", "base.en")
+    device = os.getenv("FASTER_WHISPER_DEVICE", "cpu")
+    compute_type = os.getenv("FASTER_WHISPER_COMPUTE_TYPE", "int8")
+    script = (
+        "from faster_whisper import WhisperModel; import sys; "
+        "model = WhisperModel(sys.argv[2], device=sys.argv[3], compute_type=sys.argv[4]); "
+        "segments, _ = model.transcribe(sys.argv[1], beam_size=1, vad_filter=False); "
+        "print(' '.join(segment.text.strip() for segment in segments).strip())"
+    )
+    return _run_external_transcriber([python, "-c", script, str(audio_path), model_size, device, compute_type])
+
+
+def _run_external_transcriber(command: list[str]) -> str:
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=studio_env(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip()[:500] or "External speech-to-text failed.")
+    return result.stdout.strip()
+
+
 def _transcribe_whisper_cpp(audio_path: Path) -> str:
-    binary = shutil.which("whisper-cli") or shutil.which("whisper-cpp") or shutil.which("main")
-    model = os.getenv("WHISPER_CPP_MODEL", "").strip()
+    binary = _whisper_cpp_binary()
+    model = _whisper_cpp_model_path()
     if not binary or not model:
         raise RuntimeError("whisper.cpp needs whisper-cli and WHISPER_CPP_MODEL.")
 
-    result = subprocess.run(
-        [binary, "-m", model, "-f", str(audio_path), "-nt", "-np"],
-        capture_output=True,
-        text=True,
-        timeout=120,
+    prepared_audio = _prepare_audio_for_whisper_cpp(audio_path)
+    try:
+        result = subprocess.run(
+            [binary, "-m", model, "-f", str(prepared_audio), "-nt", "-np"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=studio_env(),
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip()[:500] or "whisper.cpp failed.")
+        return result.stdout.strip()
+    finally:
+        if prepared_audio != audio_path:
+            try:
+                prepared_audio.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _whisper_cpp_binary() -> str | None:
+    path = studio_path()
+    return (
+        shutil.which("whisper-cli", path=path)
+        or shutil.which("whisper-cpp", path=path)
+        or shutil.which("main", path=path)
     )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip()[:500] or "whisper.cpp failed.")
-    return result.stdout.strip()
+
+
+def _whisper_cpp_model_path() -> str:
+    configured = _env_value("WHISPER_CPP_MODEL", "").strip()
+    if configured and Path(configured).expanduser().exists():
+        return str(Path(configured).expanduser())
+    default_path = _default_whisper_cpp_model_path("base.en")
+    return str(default_path) if default_path.exists() else ""
+
+
+def _default_whisper_cpp_model_path(model_id: str) -> Path:
+    info = WHISPER_CPP_MODELS.get(model_id, WHISPER_CPP_MODELS["base.en"])
+    return HermesConfig().home / "models" / "whisper.cpp" / info["filename"]
+
+
+def _prepare_audio_for_whisper_cpp(audio_path: Path) -> Path:
+    if audio_path.suffix.lower() == ".wav":
+        return audio_path
+
+    wav_path = audio_path.with_suffix(".wav")
+    if shutil.which("afconvert"):
+        result = subprocess.run(
+            [
+                "afconvert",
+                "-f",
+                "WAVE",
+                "-d",
+                "LEI16@16000",
+                str(audio_path),
+                str(wav_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0 and wav_path.exists() and wav_path.stat().st_size > 0:
+            return wav_path
+
+    ffmpeg = shutil.which("ffmpeg", path=studio_path())
+    if ffmpeg:
+        result = subprocess.run(
+            [ffmpeg, "-y", "-i", str(audio_path), "-ar", "16000", "-ac", "1", str(wav_path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=studio_env(),
+        )
+        if result.returncode == 0 and wav_path.exists() and wav_path.stat().st_size > 0:
+            return wav_path
+
+    raise RuntimeError("Could not convert this recording to WAV for whisper.cpp.")
+
+
+def _stt_install_options() -> list[dict[str, str]]:
+    return [
+        {"id": model_id, **info}
+        for model_id, info in WHISPER_CPP_MODELS.items()
+    ]
+
+
+async def _install_stt_stream(req: SttInstallRequest):
+    if req.engine != "whisper.cpp":
+        yield "[ERROR] Hermes Studio can only auto-install whisper.cpp right now."
+        return
+    if sys.platform != "darwin":
+        yield "[ERROR] Automatic local voice setup is currently macOS-only."
+        return
+
+    model_id = req.model if req.model in WHISPER_CPP_MODELS else "base.en"
+    model_info = WHISPER_CPP_MODELS[model_id]
+    model_path = _default_whisper_cpp_model_path(model_id)
+
+    binary = _whisper_cpp_binary()
+    if binary:
+        yield f"Found whisper.cpp at {binary}."
+    else:
+        brew = shutil.which("brew", path=studio_path())
+        if not brew:
+            yield "[ERROR] Homebrew was not found. Install Homebrew first, then return here to install local voice."
+            return
+        yield "Installing whisper.cpp with Homebrew..."
+        process = await asyncio.create_subprocess_exec(
+            brew,
+            "install",
+            "whisper-cpp",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=studio_env(),
+        )
+        if process.stdout:
+            async for raw_line in process.stdout:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if line:
+                    yield line[:500]
+        await process.wait()
+        if process.returncode != 0:
+            yield f"[ERROR] Homebrew could not install whisper.cpp. Exit code {process.returncode}."
+            return
+        binary = _whisper_cpp_binary()
+        if not binary:
+            yield "[ERROR] whisper.cpp installed, but whisper-cli was not found on PATH."
+            return
+        yield f"Installed whisper.cpp at {binary}."
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    if model_path.exists() and model_path.stat().st_size > 1024 * 1024:
+        yield f"Found local model at {model_path}."
+    else:
+        yield f"Downloading {model_info['name']} model..."
+        tmp_path = model_path.with_suffix(model_path.suffix + ".part")
+        try:
+            async for line in _download_model(model_info["url"], tmp_path, model_path):
+                yield line
+        except RuntimeError as exc:
+            yield f"[ERROR] {exc}"
+            return
+        yield f"Saved model at {model_path}."
+
+    updates = {
+        "HERMES_STUDIO_STT_ENGINE": "whisper.cpp",
+        "WHISPER_CPP_MODEL": str(model_path),
+    }
+    HermesConfig().write_env_values(updates)
+    os.environ.update(updates)
+    yield "Local voice is configured."
+    yield "[DONE]"
+
+
+async def _download_model(url: str, tmp_path: Path, final_path: Path):
+    last_reported_mb = -1
+    bytes_written = 0
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+            async with client.stream("GET", url) as response:
+                if response.status_code >= 400:
+                    raise RuntimeError(f"Model download failed with HTTP {response.status_code}.")
+                total = int(response.headers.get("content-length") or 0)
+                with tmp_path.open("wb") as out:
+                    async for chunk in response.aiter_bytes():
+                        if not chunk:
+                            continue
+                        out.write(chunk)
+                        bytes_written += len(chunk)
+                        current_mb = bytes_written // (1024 * 1024)
+                        if current_mb >= last_reported_mb + 25:
+                            last_reported_mb = current_mb
+                            if total:
+                                yield f"Downloaded {current_mb} MB of {total // (1024 * 1024)} MB."
+                            else:
+                                yield f"Downloaded {current_mb} MB."
+    except Exception as exc:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise RuntimeError(str(exc)[:500]) from exc
+
+    if bytes_written < 1024 * 1024:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise RuntimeError("Downloaded model file was unexpectedly small.")
+    tmp_path.replace(final_path)
 
 
 def _suffix_for_content_type(content_type: str) -> str:

@@ -1,23 +1,24 @@
-import shutil
 import subprocess
 from fastapi import APIRouter
 
 from app.models.ws_messages import HealthResponse
+from app.services.hermes import ensure_hermes_python_path, resolve_hermes_executable, studio_env
 
 router = APIRouter()
 
 
 def _check_hermes() -> tuple[bool, str | None]:
     """Check if hermes-agent is installed and get its version."""
-    hermes_path = shutil.which("hermes")
+    hermes_path = resolve_hermes_executable()
     if not hermes_path:
         return False, None
     try:
         result = subprocess.run(
-            ["hermes", "--version"],
+            [hermes_path, "--version"],
             capture_output=True,
             text=True,
             timeout=5,
+            env=studio_env(),
         )
         version = result.stdout.strip() if result.returncode == 0 else None
         return True, version
@@ -28,6 +29,7 @@ def _check_hermes() -> tuple[bool, str | None]:
 def _get_current_config() -> dict:
     """Try to read the current hermes configuration."""
     try:
+        ensure_hermes_python_path()
         from hermes_cli.config import load_config
         config = load_config()
         model = config.get("model")

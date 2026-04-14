@@ -1,7 +1,6 @@
 import asyncio
 import os
 import re
-import sys
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -9,7 +8,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from app.services.hermes import redact
+from app.services.hermes import (
+    ensure_hermes_python_path,
+    redact,
+    resolve_hermes_executable,
+    studio_env,
+)
 
 router = APIRouter()
 
@@ -202,8 +206,9 @@ class AgentSession:
             return None
 
         env = _set_studio_process_env()
+        hermes = resolve_hermes_executable() or "hermes"
         process = await asyncio.create_subprocess_exec(
-            "hermes", "chat", "-Q", "-q", content,
+            hermes, "chat", "-Q", "-q", content,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
@@ -341,17 +346,7 @@ def _get_current_model() -> str:
 
 
 def _ensure_hermes_python_path() -> None:
-    candidates = [
-        Path(os.environ.get("HERMES_AGENT_PATH", "")).expanduser() if os.environ.get("HERMES_AGENT_PATH") else None,
-        Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser() / "hermes-agent",
-        Path.home() / ".hermes" / "hermes-agent",
-    ]
-    for candidate in candidates:
-        if candidate and (candidate / "run_agent.py").exists():
-            path = str(candidate)
-            if path not in sys.path:
-                sys.path.insert(0, path)
-            return
+    ensure_hermes_python_path()
 
 
 def _studio_backend_path() -> Path:
@@ -365,7 +360,7 @@ def _set_studio_process_env() -> dict[str, str]:
     paths = [part for part in existing.split(os.pathsep) if part]
     if backend_path not in paths:
         os.environ["PYTHONPATH"] = os.pathsep.join([backend_path, *paths])
-    return os.environ.copy()
+    return studio_env()
 
 
 def _clean_cli_output(text: str) -> str:
@@ -486,16 +481,18 @@ async def _migrate_legacy_openai_provider() -> str | None:
     except Exception:
         return None
 
+    hermes = resolve_hermes_executable() or "hermes"
     commands = [
-        ["hermes", "config", "set", "model.provider", "custom"],
-        ["hermes", "config", "set", "model.base_url", "https://api.openai.com/v1"],
-        ["hermes", "config", "set", "model.api_mode", "codex_responses"],
+        [hermes, "config", "set", "model.provider", "custom"],
+        [hermes, "config", "set", "model.base_url", "https://api.openai.com/v1"],
+        [hermes, "config", "set", "model.api_mode", "codex_responses"],
     ]
     for cmd in commands:
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=studio_env(),
         )
         stdout, stderr = await process.communicate()
         if process.returncode != 0:
@@ -552,7 +549,7 @@ def _studio_system_prompt(enabled_toolsets: list[str] | None) -> str:
     if not enabled_toolsets:
         return ""
 
-    bridge_command = f'PYTHONPATH="{_studio_backend_path()}" python3 -m app.services.native_computer_use'
+    bridge_url = "http://127.0.0.1:8420/api/v1/computer-use/native"
     lines = [
         "You are running inside Hermes Studio, a desktop GUI for controlling the user's Mac.",
         "For any computer-use request, act through tools and visible UI state. Do not merely describe what the user could do.",
@@ -568,17 +565,17 @@ def _studio_system_prompt(enabled_toolsets: list[str] | None) -> str:
     if "terminal" in enabled_toolsets:
         lines.append("The terminal toolset is enabled for local command, AppleScript, and native app automation tasks.")
         lines.extend([
-            "Hermes Studio provides a generic native macOS computer-use bridge through the terminal tool. Use it for native app tasks instead of app-specific shortcuts:",
-            f"{bridge_command} status",
-            f"{bridge_command} observe",
-            f'{bridge_command} open-app --name "Notes"',
-            f"{bridge_command} click --x 500 --y 300",
-            f'{bridge_command} paste --text "text to insert"',
-            f"{bridge_command} hotkey --keys command,n",
-            f"{bridge_command} press --key return",
-            f"{bridge_command} scroll --direction down --amount 2",
+            "Hermes Studio provides a generic native macOS computer-use bridge through the local backend. Use curl from the terminal tool for native app tasks instead of app-specific shortcuts:",
+            f"curl -sS -X POST {bridge_url}/status",
+            f"curl -sS -X POST {bridge_url}/observe",
+            f'curl -sS -X POST {bridge_url}/open-app -H "Content-Type: application/json" -d \'{{"name":"Notes"}}\'',
+            f'curl -sS -X POST {bridge_url}/click -H "Content-Type: application/json" -d \'{{"x":500,"y":300}}\'',
+            f'curl -sS -X POST {bridge_url}/paste -H "Content-Type: application/json" -d \'{{"text":"text to insert"}}\'',
+            f'curl -sS -X POST {bridge_url}/hotkey -H "Content-Type: application/json" -d \'{{"keys":"command,n"}}\'',
+            f'curl -sS -X POST {bridge_url}/press -H "Content-Type: application/json" -d \'{{"key":"return"}}\'',
+            f'curl -sS -X POST {bridge_url}/scroll -H "Content-Type: application/json" -d \'{{"direction":"down","amount":2}}\'',
             "For native UI tasks, loop until the visible UI reflects the goal: observe, call vision_analyze with image_url set to the returned screenshot_path when needed, perform one or two bridge actions, then observe again.",
-            "Use paste for generated prose, email drafts, notes, and messages. For multi-line text, use paste --stdin. Use click coordinates only after observing the screen or analyzing a screenshot.",
+            "Use paste for generated prose, email drafts, notes, and messages. For multi-line text, send the full text in the JSON text field. Use click coordinates only after observing the screen or analyzing a screenshot.",
             "Do not stop after opening an app when the user asked you to write, search, draft, schedule, or change something inside it.",
         ])
     return "\n".join(lines)

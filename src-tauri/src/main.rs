@@ -100,6 +100,7 @@ fn request_screen_recording_permission() -> bool {
 fn main() {
     let app = tauri::Builder::default()
         .setup(|app| {
+            backend_sidecar::start(app.handle().clone());
             #[cfg(target_os = "macos")]
             voice_hotkey::start(app.handle().clone());
             Ok(())
@@ -122,6 +123,10 @@ fn main() {
         .expect("error while building Hermes Studio");
 
     app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            backend_sidecar::stop();
+        }
+
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = event {
             if let Some(window) = app_handle.get_webview_window("main") {
@@ -130,6 +135,116 @@ fn main() {
             }
         }
     });
+}
+
+mod backend_sidecar {
+    use std::fs::OpenOptions;
+    use std::net::{SocketAddr, TcpStream};
+    use std::process::{Child, Stdio};
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    use tauri::{AppHandle, Emitter, Manager};
+
+    const BACKEND_HOST: &str = "127.0.0.1";
+    const BACKEND_PORT: u16 = 8420;
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    const BACKEND_RESOURCE: &str = "bin/hermes-studio-backend-aarch64-apple-darwin";
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    const BACKEND_RESOURCE: &str = "bin/hermes-studio-backend-x86_64-apple-darwin";
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "macos", target_arch = "x86_64")
+    )))]
+    const BACKEND_RESOURCE: &str = "bin/hermes-studio-backend";
+
+    static BACKEND_PROCESS: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
+
+    pub fn start(app: AppHandle) {
+        std::thread::spawn(move || {
+            if backend_ready() {
+                emit_status(&app, "Backend already running.");
+                return;
+            }
+
+            if let Err(err) = start_inner(&app) {
+                emit_status(&app, &format!("Could not start bundled backend: {err}"));
+            }
+        });
+    }
+
+    pub fn stop() {
+        if let Ok(mut state) = backend_state().lock() {
+            if let Some(mut child) = state.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    fn start_inner(app: &AppHandle) -> Result<(), String> {
+        let backend_path = app
+            .path()
+            .resource_dir()
+            .map_err(|err| err.to_string())?
+            .join(BACKEND_RESOURCE);
+
+        if !backend_path.exists() {
+            return Err(format!("missing sidecar at {}", backend_path.display()));
+        }
+
+        let log_path = std::env::temp_dir().join("hermes-studio-backend.log");
+        let stdout = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .map_err(|err| format!("could not open backend log: {err}"))?;
+        let stderr = stdout
+            .try_clone()
+            .map_err(|err| format!("could not open backend stderr log: {err}"))?;
+
+        let child = std::process::Command::new(&backend_path)
+            .env("HERMES_STUDIO_HOST", BACKEND_HOST)
+            .env("HERMES_STUDIO_PORT", BACKEND_PORT.to_string())
+            .env("HERMES_STUDIO_LOG_LEVEL", "warning")
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .spawn()
+            .map_err(|err| format!("{}: {err}", backend_path.display()))?;
+
+        if let Ok(mut state) = backend_state().lock() {
+            *state = Some(child);
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline {
+            if backend_ready() {
+                emit_status(&app, "Bundled backend started.");
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+
+        stop();
+        Err(format!(
+            "backend did not listen on {BACKEND_HOST}:{BACKEND_PORT}; see {}",
+            log_path.display()
+        ))
+    }
+
+    fn backend_state() -> &'static Mutex<Option<Child>> {
+        BACKEND_PROCESS.get_or_init(|| Mutex::new(None))
+    }
+
+    fn backend_ready() -> bool {
+        let addr = SocketAddr::from(([127, 0, 0, 1], BACKEND_PORT));
+        TcpStream::connect_timeout(&addr, Duration::from_millis(180)).is_ok()
+    }
+
+    fn emit_status(app: &AppHandle, message: &str) {
+        let _ = app.emit("backend-status", message.to_string());
+    }
 }
 
 #[cfg(target_os = "macos")]

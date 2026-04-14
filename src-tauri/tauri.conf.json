@@ -2,10 +2,10 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Hermes Studio",
   "version": "0.1.0",
-  "identifier": "com.hermesstudio.app",
+  "identifier": "com.hermesstudio.desktop",
   "build": {
     "beforeDevCommand": "./scripts/desktop-dev-services.sh",
-    "beforeBuildCommand": "cd frontend && npm run build",
+    "beforeBuildCommand": "./scripts/desktop-build.sh",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../frontend/dist"
   },
@@ -51,6 +51,7 @@
     "active": true,
     "targets": ["dmg", "app"],
     "category": "Productivity",
+    "resources": ["bin/hermes-studio-backend-*"],
     "shortDescription": "Native control center for Hermes Agent",
     "longDescription": "Hermes Studio configures Hermes Agent for desktop, voice, and phone control."
   }

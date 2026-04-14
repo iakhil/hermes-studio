@@ -128,10 +128,19 @@ export interface VoiceEngineStatus {
   install_hint: string;
 }
 
+export interface VoiceInstallOption {
+  id: string;
+  name: string;
+  filename: string;
+  url: string;
+  detail: string;
+}
+
 export interface VoiceStatus {
   configured: boolean;
   active_engine?: string | null;
   engines: VoiceEngineStatus[];
+  install_options?: VoiceInstallOption[];
   recording: {
     format: string;
     privacy: string;

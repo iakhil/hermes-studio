@@ -3,7 +3,7 @@ import subprocess
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from app.services.hermes import HermesTools
+from app.services.hermes import HermesTools, resolve_hermes_executable, studio_env
 
 router = APIRouter(prefix="/tools")
 
@@ -48,11 +48,13 @@ TOOL_CATEGORIES = {
 def _parse_tools_list(platform: str = "cli") -> list[ToolSet]:
     """Parse output of `hermes tools list` into structured data."""
     try:
+        hermes = resolve_hermes_executable() or "hermes"
         result = subprocess.run(
-            ["hermes", "tools", "list", "--platform", platform],
+            [hermes, "tools", "list", "--platform", platform],
             capture_output=True,
             text=True,
             timeout=10,
+            env=studio_env(),
         )
         if result.returncode != 0:
             return []
@@ -91,11 +93,13 @@ async def list_tools(platform: str = Query("cli")):
 async def toggle_tool(req: ToggleRequest):
     action = "enable" if req.enabled else "disable"
     try:
+        hermes = resolve_hermes_executable() or "hermes"
         result = subprocess.run(
-            ["hermes", "tools", action, req.toolset, "--platform", req.platform],
+            [hermes, "tools", action, req.toolset, "--platform", req.platform],
             capture_output=True,
             text=True,
             timeout=10,
+            env=studio_env(),
         )
         if result.returncode == 0:
             return {"success": True}

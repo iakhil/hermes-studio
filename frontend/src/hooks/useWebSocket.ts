@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useChatStore } from "@/stores/chatStore";
 import type { WSMessage, WSClientMessage } from "@/lib/types";
+import { chatWebSocketUrl } from "@/lib/backend";
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -14,9 +15,7 @@ export function useWebSocket() {
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.host;
-    const ws = new WebSocket(`${protocol}//${host}/ws/chat`);
+    const ws = new WebSocket(chatWebSocketUrl());
     wsRef.current = ws;
 
     ws.onopen = () => {

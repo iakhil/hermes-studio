@@ -7,13 +7,29 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
+from app.services import native_computer_use
 from app.services.hermes import HermesConfig, redact
 
 router = APIRouter(prefix="/computer-use")
 
 CDP_URL = "http://127.0.0.1:9222"
 PROFILE_DIR = Path.home() / ".hermes" / "studio-chrome-profile"
+
+
+class NativeComputerCommand(BaseModel):
+    name: str | None = None
+    x: int | None = None
+    y: int | None = None
+    double: bool = False
+    text: str | None = None
+    key: str | None = None
+    keys: str | None = None
+    repeat: int = 1
+    direction: str | None = None
+    amount: int = 1
+    seconds: float = 1.0
 
 
 @router.get("/status")
@@ -32,6 +48,43 @@ async def status() -> dict[str, Any]:
             else "Connect Chrome so browser tools can control a visible persistent session."
         ),
     }
+
+
+@router.post("/native/{command}")
+async def native_command(command: str, req: NativeComputerCommand | None = None) -> dict[str, Any]:
+    req = req or NativeComputerCommand()
+    try:
+        if command == "status":
+            result = native_computer_use.status()
+        elif command == "observe":
+            result = native_computer_use.observe()
+        elif command == "frontmost":
+            result = {"frontmost_app": native_computer_use.frontmost_app()}
+        elif command == "open-app":
+            result = native_computer_use.open_app(req.name or "")
+        elif command == "click":
+            if req.x is None or req.y is None:
+                raise native_computer_use.BridgeError("click requires x and y.")
+            result = native_computer_use.click(req.x, req.y, double=req.double)
+        elif command == "type":
+            result = native_computer_use.type_text(req.text or "")
+        elif command == "paste":
+            result = native_computer_use.paste_text(req.text or "")
+        elif command == "press":
+            result = native_computer_use.press_key(req.key or "", repeat=req.repeat)
+        elif command == "hotkey":
+            result = native_computer_use.press_hotkey(req.keys or "", repeat=req.repeat)
+        elif command == "scroll":
+            result = native_computer_use.scroll_view(req.direction or "", amount=req.amount)
+        elif command == "wait":
+            seconds = max(0.0, req.seconds)
+            time.sleep(seconds)
+            result = {"waited_seconds": seconds}
+        else:
+            raise native_computer_use.BridgeError(f"Unsupported native computer-use command: {command}")
+    except Exception as exc:
+        return {"ok": False, "error": native_computer_use.summarize_error(exc)}
+    return {"ok": True, **result}
 
 
 @router.post("/connect-browser")

@@ -3,11 +3,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { apiBaseUrl } from "@/lib/backend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { Provider, Model } from "@/lib/types";
+import type { Provider, Model, TtsStatus, VoiceStatus } from "@/lib/types";
 import {
   CheckCircle2,
   XCircle,
@@ -22,11 +23,13 @@ import {
   Terminal,
   Check,
   Download,
+  Mic,
+  Volume2,
 } from "lucide-react";
 
-type Step = "check" | "provider" | "apikey" | "model" | "test" | "done";
+type Step = "check" | "provider" | "apikey" | "model" | "test" | "voice" | "done";
 
-const STEPS: Step[] = ["check", "provider", "apikey", "model", "test", "done"];
+const STEPS: Step[] = ["check", "provider", "apikey", "model", "test", "voice", "done"];
 
 const STEP_TITLES: Record<Step, string> = {
   check: "Check Installation",
@@ -34,8 +37,26 @@ const STEP_TITLES: Record<Step, string> = {
   apikey: "API Key",
   model: "Select Model",
   test: "Test Connection",
+  voice: "Local Voice",
   done: "Ready!",
 };
+
+const DEFAULT_VOICE_MODELS = [
+  {
+    id: "base.en",
+    name: "Base English",
+    filename: "ggml-base.en.bin",
+    url: "",
+    detail: "Recommended balance for voice commands.",
+  },
+  {
+    id: "tiny.en",
+    name: "Tiny English",
+    filename: "ggml-tiny.en.bin",
+    url: "",
+    detail: "Fastest local model. Good for quick commands.",
+  },
+];
 
 export function SetupPage() {
   const [step, setStep] = useState<Step>("check");
@@ -60,6 +81,11 @@ export function SetupPage() {
   const [loading, setLoading] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installLog, setInstallLog] = useState<string[]>([]);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
+  const [ttsStatus, setTtsStatus] = useState<TtsStatus | null>(null);
+  const [voiceModel, setVoiceModel] = useState("base.en");
+  const [voiceInstalling, setVoiceInstalling] = useState(false);
+  const [voiceInstallLog, setVoiceInstallLog] = useState<string[]>([]);
   const [setupError, setSetupError] = useState("");
 
   const stepIndex = STEPS.indexOf(step);
@@ -74,6 +100,12 @@ export function SetupPage() {
   useEffect(() => {
     checkInstall();
   }, []);
+
+  useEffect(() => {
+    if (step === "voice") {
+      void loadVoiceState();
+    }
+  }, [step]);
 
   async function checkInstall() {
     setLoading(true);
@@ -91,7 +123,7 @@ export function SetupPage() {
     setInstalling(true);
     setInstallLog([]);
     try {
-      const res = await fetch("/api/v1/setup/install", { method: "POST" });
+      const res = await fetch(`${apiBaseUrl()}/setup/install`, { method: "POST" });
 
       if (!res.ok) {
         setInstallLog([`Backend returned ${res.status}. Is the backend server running? (make dev-backend)`]);
@@ -99,38 +131,24 @@ export function SetupPage() {
         return;
       }
 
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) {
-        setInstallLog(["Could not read response stream."]);
-        setInstalling(false);
-        return;
-      }
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const text = decoder.decode(value);
-        const lines = text.split("\n\n").filter(Boolean);
-        for (const line of lines) {
-          const data = line.replace(/^data: /, "");
-          if (data === "[DONE]") {
-            setInstalling(false);
-            const installedNow = await refreshInstallState();
-            if (installedNow) {
-              setInstallLog((prev) => [...prev, "Hermes Agent detected. Continue to provider setup."]);
-            }
-            return;
+      await readEventStream(res, async (data) => {
+        if (data === "[DONE]") {
+          setInstalling(false);
+          const installedNow = await refreshInstallState();
+          if (installedNow) {
+            setInstallLog((prev) => [...prev, "Hermes Agent detected. Continue to provider setup."]);
           }
-          if (data.startsWith("[ERROR]")) {
-            setInstallLog((prev) => [...prev, data]);
-            setInstalling(false);
-            await refreshInstallState();
-            return;
-          }
-          setInstallLog((prev) => [...prev.slice(-100), data]);
+          return false;
         }
-      }
+        if (data.startsWith("[ERROR]")) {
+          setInstallLog((prev) => [...prev, data]);
+          setInstalling(false);
+          await refreshInstallState();
+          return false;
+        }
+        setInstallLog((prev) => [...prev.slice(-100), data]);
+        return true;
+      });
       // Stream ended without [DONE] — re-check anyway
       setInstalling(false);
       await refreshInstallState();
@@ -141,6 +159,59 @@ export function SetupPage() {
       ]);
       setInstalling(false);
       await refreshInstallState();
+    }
+  }
+
+  async function loadVoiceState() {
+    try {
+      const [voice, tts] = await Promise.all([api.voiceStatus(), api.ttsStatus()]);
+      setVoiceStatus(voice);
+      setTtsStatus(tts);
+      if (!voice.install_options?.some((option) => option.id === voiceModel)) {
+        setVoiceModel(voice.install_options?.[0]?.id || "base.en");
+      }
+    } catch (e: any) {
+      setSetupError(e.message || "Could not load local voice status.");
+    }
+  }
+
+  async function installLocalVoice() {
+    setVoiceInstalling(true);
+    setVoiceInstallLog([]);
+    setSetupError("");
+    try {
+      const res = await fetch(`${apiBaseUrl()}/voice/stt/install`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ engine: "whisper.cpp", model: voiceModel }),
+      });
+      if (!res.ok) {
+        setVoiceInstallLog([`Backend returned ${res.status}.`]);
+        setVoiceInstalling(false);
+        return;
+      }
+
+      await readEventStream(res, async (data) => {
+        if (data === "[DONE]") {
+          setVoiceInstalling(false);
+          await loadVoiceState();
+          return false;
+        }
+        if (data.startsWith("[ERROR]")) {
+          setVoiceInstallLog((prev) => [...prev, data]);
+          setVoiceInstalling(false);
+          await loadVoiceState();
+          return false;
+        }
+        setVoiceInstallLog((prev) => [...prev.slice(-100), data]);
+        return true;
+      });
+      setVoiceInstalling(false);
+      await loadVoiceState();
+    } catch (e: any) {
+      setVoiceInstallLog((prev) => [...prev, `Connection error: ${e.message}`]);
+      setVoiceInstalling(false);
+      await loadVoiceState();
     }
   }
 
@@ -616,8 +687,8 @@ export function SetupPage() {
                     Back
                   </Button>
                   {testResult?.success && (
-                    <Button className="flex-1" onClick={() => goTo("done")}>
-                      Finish Setup
+                    <Button className="flex-1" onClick={() => goTo("voice")}>
+                      Continue
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   )}
@@ -626,6 +697,145 @@ export function SetupPage() {
                       Retry
                     </Button>
                   )}
+                </div>
+              </StepCard>
+            )}
+
+            {step === "voice" && (
+              <StepCard
+                title="Set Up Local Voice"
+                description="Install local speech-to-text so hotkey voice commands work in the packaged app."
+              >
+                {setupError && <SetupError message={setupError} />}
+                <div className="space-y-4">
+                  <div
+                    className={cn(
+                      "rounded-lg border px-4 py-4",
+                      voiceStatus?.configured
+                        ? "border-emerald-500/20 bg-emerald-500/10"
+                        : "border-amber-500/20 bg-amber-500/10"
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      {voiceStatus?.configured ? (
+                        <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-400" />
+                      ) : (
+                        <Mic className="mt-0.5 h-5 w-5 text-amber-300" />
+                      )}
+                      <div>
+                        <p
+                          className={cn(
+                            "text-sm font-medium",
+                            voiceStatus?.configured ? "text-emerald-300" : "text-amber-300"
+                          )}
+                        >
+                          {voiceStatus?.configured ? "Local speech-to-text is ready" : "Local speech-to-text is not configured"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {voiceStatus?.configured
+                            ? `Active engine: ${voiceStatus.active_engine || "local voice"}`
+                            : "Hermes Studio can install whisper.cpp and keep the model on this Mac."}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-4 py-4">
+                    <div className="flex items-start gap-3">
+                      <Volume2 className="mt-0.5 h-5 w-5 text-primary" />
+                      <div>
+                        <p className="text-sm font-medium">Talk-back</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {ttsStatus?.configured
+                            ? `Ready with ${ttsStatus.active_engine || "system voice"}.`
+                            : "Hermes Studio can still run without talk-back. macOS system speech is used when available."}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {!voiceStatus?.configured && (
+                    <div className="space-y-3">
+                      <div className="grid gap-2">
+                        {(voiceStatus?.install_options || DEFAULT_VOICE_MODELS).map((option) => (
+                          <button
+                            key={option.id}
+                            onClick={() => setVoiceModel(option.id)}
+                            className={cn(
+                              "flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-all cursor-pointer",
+                              voiceModel === option.id
+                                ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                                : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+                            )}
+                          >
+                            <Mic className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0 flex-1">
+                              <span className="text-sm font-medium">{option.name}</span>
+                              <p className="text-xs text-muted-foreground">{option.detail}</p>
+                            </div>
+                            {voiceModel === option.id && (
+                              <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+
+                      <Button onClick={installLocalVoice} disabled={voiceInstalling} className="w-full">
+                        {voiceInstalling ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Download className="h-4 w-4" />
+                        )}
+                        {voiceInstalling ? "Installing Local Voice..." : "Install Local Voice"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {(voiceInstalling || voiceInstallLog.length > 0) && (
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-1">
+                      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
+                        {voiceInstalling ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                        ) : voiceInstallLog.some((l) => l.startsWith("[ERROR]")) ? (
+                          <XCircle className="h-3.5 w-3.5 text-destructive" />
+                        ) : (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                        )}
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {voiceInstalling ? "Installing local voice..." : "Local voice setup"}
+                        </span>
+                      </div>
+                      <div className="max-h-48 space-y-0.5 overflow-y-auto p-3 font-mono text-xs text-zinc-400">
+                        {voiceInstallLog.map((line, i) => (
+                          <div key={i} className={cn(line.startsWith("[ERROR]") && "text-destructive")}>
+                            {line}
+                          </div>
+                        ))}
+                        {voiceInstalling && (
+                          <div className="flex items-center gap-1.5 text-primary">
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+                            <span>waiting for output...</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-6 flex gap-3">
+                  <Button variant="outline" onClick={() => goTo("test")}>
+                    <ArrowLeft className="h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button
+                    variant={voiceStatus?.configured ? "default" : "outline"}
+                    className="flex-1"
+                    disabled={voiceInstalling}
+                    onClick={() => goTo("done")}
+                  >
+                    {voiceStatus?.configured ? "Finish Setup" : "Skip Voice for Now"}
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
                 </div>
               </StepCard>
             )}
@@ -663,6 +873,50 @@ export function SetupPage() {
       </div>
     </div>
   );
+}
+
+async function readEventStream(
+  res: Response,
+  onData: (data: string) => boolean | void | Promise<boolean | void>
+) {
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error("Could not read response stream.");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      const data = event
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.replace(/^data:\s?/, ""))
+        .join("\n");
+      if (!data) continue;
+      const keepGoing = await onData(data);
+      if (keepGoing === false) {
+        await reader.cancel();
+        return;
+      }
+    }
+  }
+
+  const trailing = buffer.trim();
+  if (trailing) {
+    const data = trailing
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.replace(/^data:\s?/, ""))
+      .join("\n");
+    if (data) await onData(data);
+  }
 }
 
 function StepCard({

@@ -1,4 +1,6 @@
-const BASE = "/api/v1";
+import { apiBaseUrl } from "./backend";
+
+const BASE = apiBaseUrl();
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

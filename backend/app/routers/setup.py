@@ -1,5 +1,4 @@
 import asyncio
-import shutil
 import subprocess
 import time
 from typing import Optional
@@ -14,7 +13,12 @@ from app.models.ws_messages import (
     SelectModelRequest,
     TestConnectionResponse,
 )
-from app.services.hermes import OPENAI_BASE_URL, OPENAI_GATEWAY_DEFAULT_MODEL
+from app.services.hermes import (
+    OPENAI_BASE_URL,
+    OPENAI_GATEWAY_DEFAULT_MODEL,
+    resolve_hermes_executable,
+    studio_env,
+)
 
 router = APIRouter(prefix="/setup")
 
@@ -92,12 +96,12 @@ PROVIDER_MODELS: dict[str, list[ModelInfo]] = {
 
 @router.get("/check-install")
 async def check_install():
-    hermes_path = shutil.which("hermes")
+    hermes_path = resolve_hermes_executable()
     if not hermes_path:
         return {"installed": False}
     try:
         result = subprocess.run(
-            ["hermes", "--version"], capture_output=True, text=True, timeout=5
+            [hermes_path, "--version"], capture_output=True, text=True, timeout=5, env=studio_env()
         )
         return {
             "installed": True,
@@ -112,7 +116,7 @@ async def install_hermes():
     """Run the hermes-agent install script, streaming output line by line."""
 
     async def stream_install():
-        if shutil.which("hermes"):
+        if resolve_hermes_executable():
             yield "data: Hermes Agent is already installed.\n\n"
             yield "data: [DONE]\n\n"
             return
@@ -122,6 +126,7 @@ async def install_hermes():
             "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            env=studio_env(),
         )
 
         if process.stdout:
@@ -189,11 +194,13 @@ async def configure_provider(req: ConfigureProviderRequest):
     except ImportError:
         # Hermes not installed as library — fall back to CLI
         try:
+            hermes = resolve_hermes_executable() or "hermes"
             result = subprocess.run(
-                ["hermes", "config", "set", "model.provider", provider],
+                [hermes, "config", "set", "model.provider", provider],
                 capture_output=True,
                 text=True,
                 timeout=10,
+                env=studio_env(),
             )
             if result.returncode != 0:
                 return {"success": False, "error": result.stderr.strip()[:500] or result.stdout.strip()[:500]}
@@ -204,10 +211,11 @@ async def configure_provider(req: ConfigureProviderRequest):
                     ("model.default", OPENAI_GATEWAY_DEFAULT_MODEL),
                 ]:
                     result = subprocess.run(
-                        ["hermes", "config", "set", key, value],
+                        [hermes, "config", "set", key, value],
                         capture_output=True,
                         text=True,
                         timeout=10,
+                        env=studio_env(),
                     )
                     if result.returncode != 0:
                         return {"success": False, "error": result.stderr.strip()[:500] or result.stdout.strip()[:500]}
@@ -248,17 +256,20 @@ async def select_model(req: SelectModelRequest):
         return {"success": True}
     except ImportError:
         try:
+            hermes = resolve_hermes_executable() or "hermes"
             result = subprocess.run(
-                ["hermes", "config", "set", "model.default", selected_model],
+                [hermes, "config", "set", "model.default", selected_model],
                 capture_output=True, text=True, timeout=10,
+                env=studio_env(),
             )
             if result.returncode != 0:
                 return {"success": False, "error": result.stderr.strip()[:500] or result.stdout.strip()[:500]}
             inferred_provider = _infer_provider_from_model(selected_model, req.provider)
             if inferred_provider:
                 result = subprocess.run(
-                    ["hermes", "config", "set", "model.provider", inferred_provider],
+                    [hermes, "config", "set", "model.provider", inferred_provider],
                     capture_output=True, text=True, timeout=10,
+                    env=studio_env(),
                 )
                 if result.returncode != 0:
                     return {"success": False, "error": result.stderr.strip()[:500] or result.stdout.strip()[:500]}
@@ -268,8 +279,9 @@ async def select_model(req: SelectModelRequest):
                         ("model.api_mode", "codex_responses"),
                     ]:
                         result = subprocess.run(
-                            ["hermes", "config", "set", key, value],
+                            [hermes, "config", "set", key, value],
                             capture_output=True, text=True, timeout=10,
+                            env=studio_env(),
                         )
                         if result.returncode != 0:
                             return {"success": False, "error": result.stderr.strip()[:500] or result.stdout.strip()[:500]}
@@ -282,11 +294,13 @@ async def select_model(req: SelectModelRequest):
 async def test_connection():
     try:
         start = time.time()
+        hermes = resolve_hermes_executable() or "hermes"
         result = subprocess.run(
-            ["hermes", "chat", "-q", "Say 'Hello from Hermes!' and nothing else."],
+            [hermes, "chat", "-q", "Say 'Hello from Hermes!' and nothing else."],
             capture_output=True,
             text=True,
             timeout=30,
+            env=studio_env(),
         )
         latency = int((time.time() - start) * 1000)
 

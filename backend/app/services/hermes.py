@@ -19,9 +19,37 @@ SECRET_PATTERNS = [
     re.compile(r"\b(sk-[A-Za-z0-9_-]{12,})\b"),
 ]
 
+USER_BIN_PATHS = (
+    Path.home() / ".local" / "bin",
+    Path.home() / ".cargo" / "bin",
+    Path("/opt/homebrew/bin"),
+    Path("/usr/local/bin"),
+    Path("/usr/bin"),
+    Path("/bin"),
+)
+
 
 def hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
+
+
+def studio_path() -> str:
+    existing = [part for part in os.environ.get("PATH", "").split(os.pathsep) if part]
+    paths: list[str] = []
+    for path in [*existing, *(str(path) for path in USER_BIN_PATHS)]:
+        if path and path not in paths:
+            paths.append(path)
+    return os.pathsep.join(paths)
+
+
+def studio_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    env = {**os.environ, **(extra or {})}
+    env["PATH"] = studio_path()
+    return env
+
+
+def resolve_hermes_executable() -> str | None:
+    return shutil.which("hermes", path=studio_path())
 
 
 def ensure_hermes_python_path() -> None:
@@ -59,17 +87,26 @@ class HermesCommand:
         self.executable = executable
 
     def installed(self) -> bool:
-        return shutil.which(self.executable) is not None
+        return self._resolved_executable() is not None
 
     def run(self, args: list[str], timeout: int = 30, env: dict[str, str] | None = None) -> CommandResult:
         start = time.time()
+        executable = self._resolved_executable()
+        if not executable:
+            return CommandResult(
+                success=False,
+                returncode=127,
+                stdout="",
+                stderr="hermes command not found",
+                duration_ms=int((time.time() - start) * 1000),
+            )
         try:
             result = subprocess.run(
-                [self.executable, *args],
+                [executable, *args],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                env={**os.environ, **(env or {})},
+                env=studio_env(env),
             )
             return CommandResult(
                 success=result.returncode == 0,
@@ -94,6 +131,11 @@ class HermesCommand:
                 stderr=f"Command timed out after {timeout}s",
                 duration_ms=int((time.time() - start) * 1000),
             )
+
+    def _resolved_executable(self) -> str | None:
+        if self.executable == "hermes":
+            return resolve_hermes_executable()
+        return shutil.which(self.executable, path=studio_path()) or self.executable
 
 
 class HermesConfig:
@@ -322,14 +364,20 @@ class GatewayProcess:
         if self.process is not None and self.process.returncode is None:
             return self.status()
 
+        executable = resolve_hermes_executable()
+        if not executable:
+            self.logs.append("hermes command not found")
+            return self.status()
+
         self.logs = []
         for line in HermesConfig().normalize_openai_gateway_config():
             self.logs.append(line)
         self.process = await asyncio.create_subprocess_exec(
-            self.command,
+            executable,
             "gateway",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            env=studio_env(),
         )
         asyncio.create_task(self._collect_logs(self.process))
         self.logs.append(f"Started hermes gateway with pid {self.process.pid}")
