@@ -1,0 +1,62 @@
+name: Release macOS DMG
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install frontend app dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install backend build dependencies
+        run: python3 -m pip install pyinstaller
+
+      - name: Build DMG
+        run: npm run desktop:build:dmg
+
+      - name: Normalize DMG asset name
+        run: |
+          mkdir -p release
+          cp src-tauri/target/release/bundle/dmg/*.dmg release/Hermes-Studio-macOS.dmg
+          shasum -a 256 release/Hermes-Studio-macOS.dmg > release/Hermes-Studio-macOS.dmg.sha256
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release/Hermes-Studio-macOS.dmg
+            release/Hermes-Studio-macOS.dmg.sha256
