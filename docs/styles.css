@@ -1,0 +1,410 @@
+:root {
+  color-scheme: dark;
+  --bg: #090909;
+  --panel: #131313;
+  --panel-strong: #1d1d1d;
+  --text: #f4f1ea;
+  --muted: #aaa59a;
+  --line: #30302d;
+  --green: #40d091;
+  --green-dark: #123526;
+  --red: #ef5d5d;
+  --gold: #d6b057;
+  --ink: #080808;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid rgba(244, 241, 234, 0.12);
+  background: rgba(9, 9, 9, 0.86);
+  padding: 16px 6vw;
+  backdrop-filter: blur(18px);
+}
+
+.brand,
+.site-header nav,
+.actions,
+.panel-top,
+.status-row,
+.voice-strip,
+.download-band,
+footer {
+  display: flex;
+  align-items: center;
+}
+
+.brand {
+  gap: 10px;
+  font-weight: 700;
+}
+
+.brand img {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+.site-header nav {
+  gap: 22px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.site-header nav a:hover {
+  color: var(--text);
+}
+
+.intro-band {
+  min-height: 88vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  align-items: center;
+  gap: 54px;
+  padding: 76px 6vw 52px;
+  background:
+    linear-gradient(rgba(9, 9, 9, 0.76), rgba(9, 9, 9, 0.9)),
+    url("assets/hermes-studio-icon.png") right 9vw center / min(46vw, 560px) no-repeat;
+}
+
+.intro,
+.section-copy,
+.download-band > div {
+  max-width: 680px;
+}
+
+.eyebrow {
+  margin: 0 0 14px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  max-width: 760px;
+  margin-bottom: 24px;
+  font-size: 58px;
+  line-height: 1;
+}
+
+h2 {
+  margin-bottom: 18px;
+  font-size: 38px;
+  line-height: 1.08;
+}
+
+h3 {
+  margin-bottom: 10px;
+  font-size: 18px;
+}
+
+.lede,
+.section-copy p,
+.download-band p {
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.actions {
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 34px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border-radius: 8px;
+  padding: 0 20px;
+  font-weight: 700;
+}
+
+.button.primary {
+  background: var(--green);
+  color: var(--ink);
+}
+
+.button.primary:hover {
+  background: #5be3a8;
+}
+
+.button.secondary {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.release-note {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+code {
+  color: var(--gold);
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.product-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(19, 19, 19, 0.92);
+  padding: 22px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.36);
+}
+
+.panel-top {
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.panel-top img {
+  width: 54px;
+  height: 54px;
+  border-radius: 8px;
+}
+
+.panel-top strong,
+.panel-top span {
+  display: block;
+}
+
+.panel-top span,
+.status-row span,
+.prompt-preview span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.status-row {
+  justify-content: space-between;
+  gap: 18px;
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+}
+
+.status-row strong {
+  color: var(--green);
+  text-align: right;
+}
+
+.prompt-preview {
+  border: 1px solid rgba(64, 208, 145, 0.28);
+  border-radius: 8px;
+  background: var(--green-dark);
+  padding: 16px;
+}
+
+.prompt-preview p {
+  margin: 8px 0 0;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  line-height: 1.5;
+}
+
+.section-band {
+  padding: 78px 6vw;
+  border-top: 1px solid rgba(244, 241, 234, 0.1);
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 30px;
+}
+
+.feature-grid article,
+.voice-strip div,
+.use-cases p {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 22px;
+}
+
+.feature-grid p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
+  gap: 40px;
+  align-items: center;
+  background: #11100e;
+}
+
+.voice-strip {
+  gap: 12px;
+}
+
+.voice-strip div {
+  min-height: 150px;
+  flex: 1;
+}
+
+.voice-strip span {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--red);
+  color: #fff;
+  font-weight: 800;
+}
+
+.voice-strip p {
+  margin: 20px 0 0;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.use-cases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.use-cases p {
+  margin: 0;
+  color: var(--text);
+}
+
+.download-band {
+  justify-content: space-between;
+  gap: 34px;
+  border-top: 1px solid rgba(244, 241, 234, 0.1);
+  background: var(--panel-strong);
+  padding: 72px 6vw;
+}
+
+footer {
+  justify-content: space-between;
+  gap: 18px;
+  padding: 26px 6vw;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+footer a:hover {
+  color: var(--text);
+}
+
+@media (max-width: 900px) {
+  .site-header {
+    position: static;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .site-header nav {
+    flex-wrap: wrap;
+  }
+
+  .intro-band,
+  .split {
+    grid-template-columns: 1fr;
+  }
+
+  .intro-band {
+    min-height: auto;
+    background:
+      linear-gradient(rgba(9, 9, 9, 0.82), rgba(9, 9, 9, 0.94)),
+      url("assets/hermes-studio-icon.png") right 18px top 34px / 180px no-repeat;
+    padding-top: 96px;
+  }
+
+  h1 {
+    font-size: 42px;
+  }
+
+  h2 {
+    font-size: 30px;
+  }
+
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-strip,
+  .download-band {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 520px) {
+  .site-header,
+  .intro-band,
+  .section-band,
+  .download-band,
+  footer {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  h1 {
+    font-size: 34px;
+  }
+
+  h2 {
+    font-size: 26px;
+  }
+
+  .lede,
+  .section-copy p,
+  .download-band p {
+    font-size: 16px;
+  }
+
+  .actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .button {
+    width: 100%;
+  }
+}

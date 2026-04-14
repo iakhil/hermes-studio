@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Hermes Studio is a native macOS control center for Hermes Agent with setup, voice, computer use, and phone access."
+    />
+    <meta property="og:title" content="Hermes Studio" />
+    <meta
+      property="og:description"
+      content="A Mac app for setting up and running Hermes Agent without living in the terminal."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="assets/hermes-studio-icon.png" />
+    <title>Hermes Studio</title>
+    <link rel="icon" href="assets/hermes-studio-icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header" aria-label="Hermes Studio">
+      <a class="brand" href="#top" aria-label="Hermes Studio home">
+        <img src="assets/hermes-studio-icon.png" alt="" />
+        <span>Hermes Studio</span>
+      </a>
+      <nav aria-label="Primary">
+        <a href="#setup">Setup</a>
+        <a href="#voice">Voice</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/iakhil/hermes-studio">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="intro-band">
+        <div class="intro">
+          <p class="eyebrow">Hermes Agent for macOS</p>
+          <h1>Run your agent from a Mac app, not a terminal checklist.</h1>
+          <p class="lede">
+            Hermes Studio turns Hermes Agent into a native desktop companion for setup, model
+            configuration, computer use, local voice commands, and phone access.
+          </p>
+          <div class="actions" id="download">
+            <a
+              class="button primary"
+              href="https://github.com/iakhil/hermes-studio/releases/latest/download/Hermes-Studio-macOS.dmg"
+            >
+              Download for macOS
+            </a>
+            <a class="button secondary" href="https://github.com/iakhil/hermes-studio/releases/latest">
+              View releases
+            </a>
+          </div>
+          <p class="release-note">
+            DMG releases are published on GitHub. Upload the app as
+            <code>Hermes-Studio-macOS.dmg</code> for the download button.
+          </p>
+        </div>
+
+        <div class="product-panel" aria-label="Hermes Studio product summary">
+          <div class="panel-top">
+            <img src="assets/hermes-studio-icon.png" alt="Hermes Studio app icon" />
+            <div>
+              <strong>Hermes Studio</strong>
+              <span>Native Mac control center</span>
+            </div>
+          </div>
+          <div class="status-row">
+            <span>Hermes Agent</span>
+            <strong>Ready</strong>
+          </div>
+          <div class="status-row">
+            <span>Computer use</span>
+            <strong>Native apps</strong>
+          </div>
+          <div class="status-row">
+            <span>Voice hotkey</span>
+            <strong>Option + Command</strong>
+          </div>
+          <div class="prompt-preview">
+            <span>Try saying</span>
+            <p>Open Notes and write a shopping list.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band" id="setup">
+        <div class="section-copy">
+          <p class="eyebrow">Setup</p>
+          <h2>Start from a clean install and get to a working agent.</h2>
+          <p>
+            Install Hermes Agent, choose a provider, save API keys locally, select a model, and
+            verify the connection from one guided flow.
+          </p>
+        </div>
+        <div class="feature-grid">
+          <article>
+            <h3>Provider setup</h3>
+            <p>OpenAI, Anthropic, OpenRouter, Nous, and local Ollama options are ready to configure.</p>
+          </article>
+          <article>
+            <h3>macOS permissions</h3>
+            <p>Accessibility, screen recording, microphone, and automation checks stay visible.</p>
+          </article>
+          <article>
+            <h3>Local services</h3>
+            <p>The packaged app starts its own backend sidecar and connects the desktop UI to Hermes.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-band split" id="voice">
+        <div class="section-copy">
+          <p class="eyebrow">Voice</p>
+          <h2>Hold a hotkey, speak, and let Hermes act.</h2>
+          <p>
+            Local speech setup can install a Whisper model, while talk-back can use the Mac system
+            voice or an ElevenLabs key.
+          </p>
+        </div>
+        <div class="voice-strip" aria-label="Voice workflow">
+          <div>
+            <span>1</span>
+            <p>Hold Option + Command</p>
+          </div>
+          <div>
+            <span>2</span>
+            <p>Speak the task</p>
+          </div>
+          <div>
+            <span>3</span>
+            <p>Release to send</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-band">
+        <div class="section-copy">
+          <p class="eyebrow">Computer Use</p>
+          <h2>Give Hermes native Mac context.</h2>
+          <p>
+            Hermes Studio adds low-level screen observation, keyboard input, mouse control, app
+            activation, and clipboard actions for general desktop tasks.
+          </p>
+        </div>
+        <div class="use-cases">
+          <p>Write in Notes</p>
+          <p>Search in a browser</p>
+          <p>Message from WhatsApp</p>
+          <p>Create calendar events</p>
+          <p>Work across native apps</p>
+        </div>
+      </section>
+
+      <section class="download-band">
+        <div>
+          <p class="eyebrow">macOS</p>
+          <h2>Download the latest DMG.</h2>
+          <p>
+            Install Hermes Studio, open the app, and follow Setup. The app keeps Hermes config in
+            the standard local Hermes directory.
+          </p>
+        </div>
+        <a
+          class="button primary"
+          href="https://github.com/iakhil/hermes-studio/releases/latest/download/Hermes-Studio-macOS.dmg"
+        >
+          Download for macOS
+        </a>
+      </section>
+    </main>
+
+    <footer>
+      <span>Hermes Studio</span>
+      <a href="https://github.com/iakhil/hermes-studio">GitHub</a>
+    </footer>
+  </body>
+</html>
