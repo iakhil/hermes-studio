@@ -139,7 +139,33 @@ The native shell currently adds:
 
 - Accessibility permission status checks.
 - Shortcuts to Accessibility, Screen Recording, Microphone, and Automation settings.
-- A path toward Keychain secrets, LaunchAgent persistence, menu bar controls, and a signed `.dmg`.
+- A path toward Keychain secrets, LaunchAgent persistence, menu bar controls, and signed macOS releases.
+
+## macOS Release Signing
+
+Public macOS downloads must be signed and notarized. An unsigned web-downloaded `.dmg`
+can be blocked by Gatekeeper with a message that the app is damaged.
+
+The `Release macOS DMG` workflow expects these GitHub Actions secrets before it will
+publish a release:
+
+- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12` certificate.
+- `APPLE_CERTIFICATE_PASSWORD`: password for the `.p12` certificate.
+- `APPLE_ID`: Apple ID used for notarization.
+- `APPLE_PASSWORD`: app-specific password for that Apple ID.
+- `APPLE_TEAM_ID`: Apple Developer Team ID.
+- `APPLE_SIGNING_IDENTITY`: optional explicit Developer ID Application identity.
+
+Create a release by pushing a version tag:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The workflow builds the DMG, verifies the code signature, validates the stapled
+notarization ticket, runs Gatekeeper assessment, and uploads
+`Hermes-Studio-macOS.dmg` plus its SHA-256 file to the GitHub release.
 
 Rust is pinned in `rust-toolchain.toml` because current Tauri dependencies require Rust 1.88+.
 

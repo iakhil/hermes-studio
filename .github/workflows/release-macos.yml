@@ -42,14 +42,41 @@ jobs:
       - name: Install backend build dependencies
         run: python3 -m pip install pyinstaller
 
+      - name: Verify Apple signing secrets
+        run: |
+          missing=0
+          for secret in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!secret:-}" ]; then
+              echo "::error::$secret is required to publish a Gatekeeper-safe macOS DMG"
+              missing=1
+            fi
+          done
+          exit "$missing"
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
       - name: Build DMG
         run: npm run desktop:build:dmg
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Normalize DMG asset name
         run: |
           mkdir -p release
           cp src-tauri/target/release/bundle/dmg/*.dmg release/Hermes-Studio-macOS.dmg
           shasum -a 256 release/Hermes-Studio-macOS.dmg > release/Hermes-Studio-macOS.dmg.sha256
+          codesign --verify --verbose=2 release/Hermes-Studio-macOS.dmg
+          xcrun stapler validate release/Hermes-Studio-macOS.dmg
+          spctl -a -vv -t open release/Hermes-Studio-macOS.dmg
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
