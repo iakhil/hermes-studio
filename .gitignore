@@ -15,6 +15,7 @@ src-tauri/bin/hermes-studio-backend-*
 dist/
 build/
 docs/downloads/*.dmg
+!docs/downloads/Hermes-Studio-macOS.dmg
 *.tsbuildinfo
 backend/__pycache__/
 backend/app/__pycache__/
